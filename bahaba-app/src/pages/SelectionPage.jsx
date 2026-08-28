@@ -5,6 +5,7 @@ export default function SelectionPage({
   selectedValue,
   onBack,
   onSelect,
+  loading = false,
   gridMode = false,
 }) {
   return (
@@ -27,16 +28,21 @@ export default function SelectionPage({
 
       <div className={`selection-list ${gridMode ? 'city-grid' : ''}`}>
         <div className="list-title">{gridMode ? 'Cities / Municipalities' : 'Luzon Regions'}</div>
-        {items.map((item) => (
+        {loading && <div className="selection-loading">Loading locations...</div>}
+        {!loading && items.map((item) => {
+          const value = typeof item === 'string' ? item : item.name
+          return (
           <button
-            key={item}
+            key={value}
             type="button"
-            className={`option-row ${selectedValue === item ? 'selected' : ''}`}
+            className={`option-row ${selectedValue === value ? 'selected' : ''}`}
             onClick={() => onSelect(item)}
           >
-            {item}
+            {value}
           </button>
-        ))}
+          )
+        })}
+        {!loading && items.length === 0 && <div className="selection-loading">No locations found for this region.</div>}
       </div>
     </div>
   )

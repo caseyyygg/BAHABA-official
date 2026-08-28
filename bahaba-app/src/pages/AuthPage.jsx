@@ -7,7 +7,25 @@ export default function AuthPage({
   onSignupNext,
   onLoginSubmit,
   onSwitchMode,
+  onVerify,
+  error,
+  busy,
 }) {
+  if (mode === 'verify') {
+    return (
+      <div className="phone-screen auth-screen login-screen">
+        <div className="top-banner top-banner-small"><div className="mini-mark" /></div>
+        <div className="auth-card login-card">
+          <h2>Check your Gmail</h2>
+          <p className="auth-message">We sent an activation link to your Gmail address. Open it, then return here to finish signing in.</p>
+          {error && <p className="auth-error">{error}</p>}
+          <button className="primary-button" onClick={onVerify} disabled={busy}>{busy ? 'CHECKING...' : "I'VE VERIFIED MY EMAIL"}</button>
+          <p className="small-link"><button type="button" onClick={() => onSwitchMode('login')}>Back to log in</button></p>
+        </div>
+      </div>
+    )
+  }
+
   if (mode === 'login') {
     return (
       <div className="phone-screen auth-screen login-screen">
@@ -28,14 +46,14 @@ export default function AuthPage({
           <h2>Log in</h2>
 
           <div className="field-block">
-            <label>Username</label>
+            <label>Gmail address</label>
             <div className="input-wrap">
               <span className="field-icon">👤</span>
               <input
-                type="text"
-                placeholder="Enter your username"
-                value={loginForm.username}
-                onChange={(e) => onLoginFieldChange('username', e.target.value)}
+                type="email"
+                placeholder="Enter your Gmail address"
+                value={loginForm.email}
+                onChange={(e) => onLoginFieldChange('email', e.target.value)}
               />
             </div>
           </div>
@@ -53,7 +71,8 @@ export default function AuthPage({
             </div>
           </div>
 
-          <button className="primary-button" onClick={onLoginSubmit}>Log in</button>
+          {error && <p className="auth-error">{error}</p>}
+          <button className="primary-button" onClick={onLoginSubmit} disabled={busy}>{busy ? 'LOGGING IN...' : 'Log in'}</button>
 
           <p className="small-link">
             Don&apos;t have an account? <button type="button" onClick={() => onSwitchMode('signup')}>Sign up</button>
@@ -137,7 +156,8 @@ export default function AuthPage({
           </div>
         </div>
 
-        <button className="primary-button" onClick={onSignupNext}>NEXT</button>
+        {error && <p className="auth-error">{error}</p>}
+        <button className="primary-button" onClick={onSignupNext} disabled={busy}>NEXT</button>
 
         <p className="small-link">
           Already have an account? <button type="button" onClick={() => onSwitchMode('login')}>Log In</button>

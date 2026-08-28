@@ -7,9 +7,7 @@ import MapPage from './pages/MapPage'
 import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
-
-const STORAGE_KEY = 'bahaba_local_accounts'
-const SESSION_KEY = 'bahaba_current_user'
+import { checkVerification, login, logout, signup } from './api'
 
 const regions = [
   'National Capital Region — Metro Manila',
@@ -22,7 +20,7 @@ const regions = [
   'Region V (Bicol Region)',
 ]
 
-const cities = [
+const fallbackCities = [
   'Caloocan',
   'Navotas',
   'Las Piñas',
@@ -39,7 +37,7 @@ const cities = [
   'Valenzuela',
 ]
 
-const barangays = [
+const fallbackBarangays = [
   'Acacia',
   'Niugan',
   'Baritan',
@@ -59,6 +57,17 @@ const barangays = [
   'Concepcion',
   'Santulan',
 ]
+
+const regionCodes = {
+  'National Capital Region — Metro Manila': '130000000',
+  'Cordillera Administrative Region': '140000000',
+  'Region I (Ilocos Region)': '010000000',
+  'Region II (Cagayan Valley)': '020000000',
+  'Region III (Central Luzon)': '030000000',
+  'Region IV-A (CALABARZON)': '040000000',
+  'Region IV-B (MIMAROPA)': '170000000',
+  'Region V (Bicol Region)': '050000000',
+}
 
 const mapCards = [
   { name: 'Barangay Concepcion', city: 'Malabon City', risk: 'high', evac: 'Concepcion Elementary School, Sto. Niño Multi-Purpose Hall' },
@@ -97,30 +106,34 @@ const emptySignup = {
 function App() {
   const [screen, setScreen] = useState('splash')
   const [signupForm, setSignupForm] = useState(emptySignup)
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' })
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [selectedRegion, setSelectedRegion] = useState('National Capital Region — Metro Manila')
   const [selectedCity, setSelectedCity] = useState('Malabon')
   const [selectedBarangays, setSelectedBarangays] = useState(['Concepcion', 'Bayan-bayanan'])
+  const [availableCities, setAvailableCities] = useState(fallbackCities)
+  const [availableBarangays, setAvailableBarangays] = useState(fallbackBarangays)
+  const [locationDataLoading, setLocationDataLoading] = useState(false)
   const [activeNav, setActiveNav] = useState('alerts')
   const [severity, setSeverity] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [darkMode, setDarkMode] = useState(false)
-  const [accounts, setAccounts] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    return saved ? JSON.parse(saved) : []
-  })
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem(SESSION_KEY)
-    return saved ? JSON.parse(saved) : null
-  })
+  const [floodAlertsEnabled, setFloodAlertsEnabled] = useState(true)
+  const [locationSharingEnabled, setLocationSharingEnabled] = useState(false)
+  const [currentLocation, setCurrentLocation] = useState(null)
+  const [currentPlace, setCurrentPlace] = useState('')
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false)
+  const [locationStatus, setLocationStatus] = useState('')
+  const [notificationStatus, setNotificationStatus] = useState('')
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authError, setAuthError] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts))
-  }, [accounts])
-
-  useEffect(() => {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser))
-  }, [currentUser])
+    if (new URLSearchParams(window.location.search).get('verified') === '1') {
+      window.history.replaceState({}, document.title, window.location.pathname)
+      setScreen('verify')
+    }
+  }, [])
 
   const filteredMapCards = useMemo(() => {
     if (severity === 'all') return mapCards
@@ -147,52 +160,204 @@ function App() {
     )
   }
 
+  const loadLocationData = async (url, fallback) => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error('Location data unavailable')
+      const data = await response.json()
+      return data.map((item) => ({ name: item.name, code: item.code }))
+    } catch {
+      return fallback.map((name) => ({ name, code: name }))
+    }
+  }
+
+  const handleRegionSelect = async (region) => {
+    setSelectedRegion(region)
+    setSelectedCity('')
+    setSelectedBarangays([])
+    setLocationDataLoading(true)
+    const citiesForRegion = await loadLocationData(
+      `https://psgc.gitlab.io/api/regions/${regionCodes[region]}/cities-municipalities/`,
+      region === 'National Capital Region — Metro Manila' ? fallbackCities : [],
+    )
+    setAvailableCities(citiesForRegion)
+    setLocationDataLoading(false)
+    setScreen('city')
+  }
+
+  const handleCitySelect = async (city) => {
+    setSelectedCity(city.name)
+    setSelectedBarangays([])
+    setLocationDataLoading(true)
+    const fallback = city.name === 'Malabon' ? fallbackBarangays : []
+    const barangaysForCity = await loadLocationData(
+      `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays/`,
+      fallback,
+    )
+    setAvailableBarangays(barangaysForCity.map((item) => item.name))
+    setLocationDataLoading(false)
+    setScreen('barangay')
+  }
+
   const handleSignupChange = (field, value) => {
     setSignupForm((current) => ({ ...current, [field]: value }))
   }
 
-  const saveCreatedAccount = () => {
-    if (!signupForm.email || !signupForm.username || !signupForm.password) {
-      alert('Please complete your email, username, and password.')
+  const continueSignup = () => {
+    setAuthError('')
+    if (!/^[^\s@]+@gmail\.com$/i.test(signupForm.email.trim())) {
+      setAuthError('Please enter a valid Gmail address ending in @gmail.com.')
       return
     }
-
-    const newUser = {
-      id: Date.now(),
-      email: signupForm.email,
-      username: signupForm.username,
-      password: signupForm.password,
-      location: signupForm.location,
-      region: selectedRegion,
-      city: selectedCity,
-      barangays: selectedBarangays,
+    if (!signupForm.username.trim() || signupForm.password.length < 8) {
+      setAuthError('Add a username and a password with at least 8 characters.')
+      return
     }
-
-    setAccounts((current) => {
-      const filtered = current.filter((account) => account.username !== newUser.username)
-      return [newUser, ...filtered]
-    })
-    setCurrentUser(newUser)
-    setSignupForm(emptySignup)
-    setScreen('map')
+    setScreen('region')
   }
 
-  const handleLogin = () => {
-    const match = accounts.find(
-      (account) =>
-        account.username === loginForm.username.trim() && account.password === loginForm.password,
-    )
+  const saveCreatedAccount = async () => {
+    setAuthError('')
+    if (!selectedCity || selectedBarangays.length === 0) {
+      setAuthError('Select a city and at least one barangay before creating your account.')
+      return
+    }
+    setAuthBusy(true)
+    try {
+      await signup({ ...signupForm, region: selectedRegion, city: selectedCity, barangays: selectedBarangays })
+      setSignupForm(emptySignup)
+      setScreen('verify')
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthBusy(false)
+    }
+  }
 
-    if (!match) {
-      alert('No local account matches that username and password.')
+  const handleLogin = async () => {
+    setAuthError('')
+    setAuthBusy(true)
+    try {
+      const result = await login(loginForm)
+      setCurrentUser(result.user)
+      setSelectedRegion(result.user.region || selectedRegion)
+      setSelectedCity(result.user.city || selectedCity)
+      setSelectedBarangays(result.user.barangays || selectedBarangays)
+      setScreen('map')
+    } catch (error) {
+      setAuthError(error.message)
+      if (error.needsVerification) setScreen('verify')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleVerificationCheck = async () => {
+    setAuthError('')
+    setAuthBusy(true)
+    try {
+      const result = await checkVerification()
+      setCurrentUser(result.user)
+      setSelectedRegion(result.user.region || selectedRegion)
+      setSelectedCity(result.user.city || selectedCity)
+      setSelectedBarangays(result.user.barangays || selectedBarangays)
+      setScreen('map')
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch {
+      // Return to the signed-out screen even if the API session already expired.
+    }
+    setCurrentUser(null)
+    setLoginForm({ email: '', password: '' })
+    setScreen('splash')
+  }
+
+  const handleLocationToggle = (enabled) => {
+    if (!enabled) {
+      setLocationSharingEnabled(false)
+      setCurrentLocation(null)
+      setCurrentPlace('')
+      setLocationStatus('Location sharing is off.')
       return
     }
 
-    setCurrentUser(match)
-    setSelectedRegion(match.region || selectedRegion)
-    setSelectedCity(match.city || selectedCity)
-    setSelectedBarangays(match.barangays || selectedBarangays)
-    setScreen('map')
+    if (!navigator.geolocation) {
+      setLocationSharingEnabled(false)
+      setCurrentLocation(null)
+      setCurrentPlace('')
+      setLocationStatus('Location is not available in this browser.')
+      return
+    }
+
+    setLocationStatus('Requesting your location...')
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setLocationSharingEnabled(true)
+        setCurrentLocation({ latitude: coords.latitude, longitude: coords.longitude })
+        setCurrentPlace('Finding your place...')
+        setLocationStatus('Finding your current place...')
+        fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=en`)
+          .then((response) => response.ok ? response.json() : Promise.reject(new Error('Reverse geocoding failed')))
+          .then((place) => {
+            const area = place.locality || place.city || place.principalSubdivision || 'Current location'
+            const neighborhood = place.localityInfo?.administrative?.find((item) =>
+              ['suburb', 'neighbourhood', 'borough'].includes(item.description?.toLowerCase()),
+            )?.name
+            const label = neighborhood ? `${neighborhood}, ${area}` : area
+            setCurrentPlace(label)
+            setLocationStatus(`Location active: ${label}.`)
+          })
+          .catch(() => {
+            setCurrentPlace('Place unavailable')
+            setLocationStatus('Location is active, but the place name could not be found.')
+          })
+      },
+      () => {
+        setLocationSharingEnabled(false)
+        setCurrentLocation(null)
+        setLocationStatus('Location permission was not granted.')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    )
+  }
+
+  const handleNotificationsToggle = async (enabled) => {
+    if (!enabled) {
+      setPushNotificationsEnabled(false)
+      setNotificationStatus('Push notifications are off.')
+      return
+    }
+
+    if (!('Notification' in window)) {
+      setNotificationStatus('Notifications are not available in this browser.')
+      return
+    }
+
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        setPushNotificationsEnabled(false)
+        setNotificationStatus('Notification permission was not granted. Allow it in browser settings, then try again.')
+        return
+      }
+
+      setPushNotificationsEnabled(true)
+      setNotificationStatus('Push notifications are enabled.')
+      if (floodAlertsEnabled) {
+        new Notification('BAHABA alerts enabled', { body: 'You will receive flood alert notifications here.' })
+      }
+    } catch {
+      setPushNotificationsEnabled(false)
+      setNotificationStatus('Notifications are blocked for this site. Allow them in browser settings, then try again.')
+    }
   }
 
   const renderScreen = () => {
@@ -208,9 +373,11 @@ function App() {
             loginForm={loginForm}
             onSignupFieldChange={handleSignupChange}
             onLoginFieldChange={(field, value) => setLoginForm((current) => ({ ...current, [field]: value }))}
-            onSignupNext={() => setScreen('region')}
+            onSignupNext={continueSignup}
             onLoginSubmit={handleLogin}
             onSwitchMode={(nextMode) => setScreen(nextMode)}
+            error={authError}
+            busy={authBusy}
           />
         )
 
@@ -222,11 +389,16 @@ function App() {
             loginForm={loginForm}
             onSignupFieldChange={handleSignupChange}
             onLoginFieldChange={(field, value) => setLoginForm((current) => ({ ...current, [field]: value }))}
-            onSignupNext={() => setScreen('region')}
+            onSignupNext={continueSignup}
             onLoginSubmit={handleLogin}
             onSwitchMode={(nextMode) => setScreen(nextMode)}
+            error={authError}
+            busy={authBusy}
           />
         )
+
+      case 'verify':
+        return <AuthPage mode="verify" onVerify={handleVerificationCheck} onSwitchMode={(nextMode) => { setAuthError(''); setScreen(nextMode) }} error={authError} busy={authBusy} />
 
       case 'region':
         return (
@@ -236,10 +408,7 @@ function App() {
             items={regions}
             selectedValue={selectedRegion}
             onBack={() => setScreen('signup')}
-            onSelect={(value) => {
-              setSelectedRegion(value)
-              setScreen('city')
-            }}
+            onSelect={handleRegionSelect}
           />
         )
 
@@ -247,14 +416,12 @@ function App() {
         return (
           <SelectionPage
             title="Select City"
-            subtitle="Choose your city within Metro Manila."
-            items={cities}
+            subtitle={`Choose a city or municipality in ${selectedRegion}.`}
+            items={availableCities}
             selectedValue={selectedCity}
             onBack={() => setScreen('region')}
-            onSelect={(value) => {
-              setSelectedCity(value)
-              setScreen('barangay')
-            }}
+            onSelect={handleCitySelect}
+            loading={locationDataLoading}
             gridMode
           />
         )
@@ -280,7 +447,7 @@ function App() {
 
             <div className="selection-list city-grid">
               <div className="list-title">Barangays</div>
-              {barangays.map((barangay) => (
+              {availableBarangays.map((barangay) => (
                 <button
                   key={barangay}
                   type="button"
@@ -293,7 +460,10 @@ function App() {
             </div>
 
             <div className="bottom-actions">
-              <button className="primary-button" onClick={saveCreatedAccount}>Create Account</button>
+              <button className="primary-button" onClick={saveCreatedAccount} disabled={authBusy}>
+                {authBusy ? 'CREATING ACCOUNT...' : 'Create Account'}
+              </button>
+              {authError && <p className="auth-error selection-error">{authError}</p>}
             </div>
           </div>
         )
@@ -348,6 +518,19 @@ function App() {
             activeNav={activeNav}
             setActiveNav={setActiveNav}
             setScreen={setScreen}
+            onLogout={handleLogout}
+            floodAlertsEnabled={floodAlertsEnabled}
+            setFloodAlertsEnabled={setFloodAlertsEnabled}
+            locationSharingEnabled={locationSharingEnabled}
+            onLocationToggle={handleLocationToggle}
+            pushNotificationsEnabled={pushNotificationsEnabled}
+            onNotificationsToggle={handleNotificationsToggle}
+            locationStatus={locationStatus}
+            notificationStatus={notificationStatus}
+            currentLocation={currentLocation}
+            currentPlace={currentPlace}
+            selectedCity={selectedCity}
+            selectedBarangays={selectedBarangays}
           />
         )
 

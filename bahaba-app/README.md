@@ -1,4 +1,18 @@
-# React + Vite
+# BAHABA
+
+## Real authentication setup
+
+Authentication uses the PHP API in `api/` and MySQL. Signup accepts only `@gmail.com` addresses, hashes passwords on the server, and sends a 24-hour activation link through Gmail SMTP.
+
+1. Install MySQL/MariaDB and import `api/schema.sql`.
+2. Edit `api/config.php`: set the database password and Gmail SMTP values. For Gmail, use a Google **App Password**, not your normal Gmail password.
+3. Install the mail dependency from `bahaba-app` with `composer install --working-dir=api`.
+4. Start the PHP API from `bahaba-app` with `php -S localhost:8000`.
+5. In a second terminal, start the React app with `npm run dev`.
+
+The default frontend/API URLs are `http://localhost:5173` and `http://localhost:8000/api`. Change `VITE_API_URL` if the API runs elsewhere.
+
+Do not commit `api/config.php`; it is already ignored because it contains SMTP credentials.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

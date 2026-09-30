@@ -9,23 +9,51 @@ if (!is_file($configPath)) {
 }
 
 $config = require $configPath;
+$publicOrigin = rtrim((string) (getenv('BAHABA_PUBLIC_ORIGIN') ?: ''), '/');
+if ($publicOrigin !== '') {
+    $config['api_url'] = $publicOrigin . '/api';
+    $config['app_url'] = $publicOrigin;
+    $config['frontend_origin'] = $publicOrigin;
+}
 
+// Set CORS headers FIRST, before anything else
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: ' . $config['frontend_origin']);
-header('Access-Control-Allow-Credentials: true');
-header('Access-Control-Allow-Headers: Content-Type');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+$allowedOrigins = array_values(array_unique([
+    $config['frontend_origin'] ?? '',
+    'http://localhost:5173',
+    'http://localhost:5175',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5175',
+]));
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
+// Always set CORS headers for preflight and actual requests
+if (in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+} else {
+    header('Access-Control-Allow-Origin: ' . ($config['frontend_origin'] ?? 'http://localhost:5173'));
+}
+
+header('Access-Control-Allow-Credentials: true');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Max-Age: 86400');
+
+// Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
 
+// Now configure and start session
 session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax',
     'secure' => false,
+    'lifetime' => 30 * 24 * 60 * 60, // 30 days
 ]);
+ini_set('session.gc_maxlifetime', 30 * 24 * 60 * 60); // 30 days
+ini_set('session.cookie_lifetime', 30 * 24 * 60 * 60); // 30 days
 session_start();
 
 try {
@@ -66,3 +94,4 @@ function public_user(array $user): array
         'barangays' => $user['barangays'] ? json_decode($user['barangays'], true) : [],
     ];
 }
+

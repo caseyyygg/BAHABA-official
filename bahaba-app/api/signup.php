@@ -14,6 +14,11 @@ $password = (string) ($data['password'] ?? '');
 if (!preg_match('/^[A-Za-z0-9._%+-]+@gmail\.com$/i', $email)) {
     respond(['error' => 'Please use a valid Gmail address ending in @gmail.com.'], 422);
 }
+$adminCheck = $pdo->prepare('SELECT id FROM admin_users WHERE email = :email LIMIT 1');
+$adminCheck->execute(['email' => $email]);
+if ($adminCheck->fetch()) {
+    respond(['error' => 'This email is reserved for admin access and cannot be used for the app.'], 409);
+}
 if (strlen($username) < 3 || strlen($username) > 50) {
     respond(['error' => 'Username must be between 3 and 50 characters.'], 422);
 }

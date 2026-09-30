@@ -15,3 +15,28 @@ CREATE TABLE users (
   email_verified_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS reports (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  city VARCHAR(100) NOT NULL,
+  barangay VARCHAR(100) NOT NULL,
+  severity ENUM('low', 'medium', 'high') NOT NULL DEFAULT 'medium',
+  reporter VARCHAR(150) NOT NULL,
+  source VARCHAR(50) NOT NULL DEFAULT 'citizen',
+  platform VARCHAR(50) NULL,
+  description TEXT NOT NULL,
+  status ENUM('pending', 'verified', 'rejected') NOT NULL DEFAULT 'pending',
+  photo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS announcements (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  city VARCHAR(100) NOT NULL,
+  barangay VARCHAR(100) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,
+  status ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+

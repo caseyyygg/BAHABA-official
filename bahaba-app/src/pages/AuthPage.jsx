@@ -8,7 +8,9 @@ export default function AuthPage({
   onLoginSubmit,
   onSwitchMode,
   onVerify,
+  onResendVerification,
   error,
+  notice,
   busy,
 }) {
   if (mode === 'verify') {
@@ -19,7 +21,9 @@ export default function AuthPage({
           <h2>Check your Gmail</h2>
           <p className="auth-message">We sent an activation link to your Gmail address. Open it, then return here to finish signing in.</p>
           {error && <p className="auth-error">{error}</p>}
+          {notice && <p className="auth-notice">{notice}</p>}
           <button className="primary-button" onClick={onVerify} disabled={busy}>{busy ? 'CHECKING...' : "I'VE VERIFIED MY EMAIL"}</button>
+          <p className="small-link"><button type="button" onClick={onResendVerification} disabled={busy}>Resend activation link</button></p>
           <p className="small-link"><button type="button" onClick={() => onSwitchMode('login')}>Back to log in</button></p>
         </div>
       </div>

@@ -6,6 +6,12 @@ $data = request_json();
 $email = strtolower(trim((string) ($data['email'] ?? '')));
 $password = (string) ($data['password'] ?? '');
 
+$adminStatement = $pdo->prepare('SELECT id FROM admin_users WHERE email = :email LIMIT 1');
+$adminStatement->execute(['email' => $email]);
+if ($adminStatement->fetch()) {
+    respond(['error' => 'This account is reserved for admin access only. Please use the admin login portal.'], 403);
+}
+
 $statement = $pdo->prepare('SELECT * FROM users WHERE email = :email LIMIT 1');
 $statement->execute(['email' => $email]);
 $user = $statement->fetch();

@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 async function request(endpoint, options = {}) {
   const response = await fetch(`${API_URL}/${endpoint}`, {
@@ -17,5 +17,6 @@ async function request(endpoint, options = {}) {
 
 export const signup = (data) => request('signup.php', { method: 'POST', body: JSON.stringify(data) })
 export const login = (data) => request('login.php', { method: 'POST', body: JSON.stringify(data) })
+export const resendVerification = () => request('resend-verification.php', { method: 'POST' })
 export const checkVerification = () => request('me.php')
 export const logout = () => request('logout.php', { method: 'POST' })

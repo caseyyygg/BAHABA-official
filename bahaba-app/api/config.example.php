@@ -9,6 +9,7 @@ return [
     'api_url' => 'http://localhost:8000/api',
     'app_url' => 'http://localhost:5173',
     'frontend_origin' => 'http://localhost:5173',
+    'nlp_ingest_token' => 'replace-with-a-long-random-secret',
     'mail_from' => 'no-reply@example.com',
     'smtp' => [
         'host' => 'smtp.gmail.com',

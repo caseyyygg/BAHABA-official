@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import SplashPage from './pages/SplashPage'
 import AuthPage from './pages/AuthPage'
@@ -7,7 +7,7 @@ import MapPage from './pages/MapPage'
 import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
-import { checkVerification, login, logout, signup } from './api'
+import { checkVerification, login, logout, resendVerification, signup } from './api'
 
 const regions = [
   'National Capital Region — Metro Manila',
@@ -69,26 +69,6 @@ const regionCodes = {
   'Region V (Bicol Region)': '050000000',
 }
 
-const mapCards = [
-  { name: 'Barangay Concepcion', city: 'Malabon City', risk: 'high', evac: 'Concepcion Elementary School, Sto. Niño Multi-Purpose Hall' },
-  { name: 'Barangay Baritan', city: 'Malabon City', risk: 'high', evac: 'Baritan Elementary School, Barangay Hall' },
-  { name: 'Barangay Tumana', city: 'Malabon City', risk: 'high', evac: 'Malanday Elementary School, Barangay Hall' },
-  { name: 'Barangay Malanday', city: 'Malabon City', risk: 'medium', evac: 'Malanday Elementary School' },
-  { name: 'Barangay Longos', city: 'Malabon City', risk: 'low', evac: 'Longos Elementary School' },
-  { name: 'Barangay Muzon', city: 'Malabon City', risk: 'low', evac: 'Muzon Covered Court' },
-]
-
-const locationSearchSuggestions = [
-  { name: 'Barangay Concepcion', city: 'Malabon City', status: 'high' },
-  { name: 'Barangay Malanday', city: 'Malabon City', status: 'medium' },
-  { name: 'Barangay Longos', city: 'Malabon City', status: 'low' },
-  { name: 'Barangay Baritan', city: 'Malabon City', status: 'high' },
-  { name: 'Barangay Tumana', city: 'Malabon City', status: 'high' },
-  { name: 'Barangay Muzon', city: 'Malabon City', status: 'low' },
-  { name: 'Navotas City', city: 'Navotas', status: 'medium' },
-  { name: 'Las Piñas', city: 'Las Piñas', status: 'low' },
-]
-
 const navigation = [
   { id: 'alerts', label: 'Alerts', icon: '⚑' },
   { id: 'map', label: 'Map', icon: '🗺' },
@@ -114,7 +94,6 @@ function App() {
   const [availableBarangays, setAvailableBarangays] = useState(fallbackBarangays)
   const [locationDataLoading, setLocationDataLoading] = useState(false)
   const [activeNav, setActiveNav] = useState('alerts')
-  const [severity, setSeverity] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [darkMode, setDarkMode] = useState(false)
   const [floodAlertsEnabled, setFloodAlertsEnabled] = useState(true)
@@ -126,31 +105,60 @@ function App() {
   const [notificationStatus, setNotificationStatus] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
   const [authError, setAuthError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
 
+  // Session persistence
   useEffect(() => {
+    // Check for saved session on app load
+    const savedUser = localStorage.getItem('bahaba_app_user')
+    const sessionExpiry = localStorage.getItem('bahaba_app_session_expiry')
+    
+    if (savedUser && sessionExpiry && new Date().getTime() < parseInt(sessionExpiry)) {
+      try {
+        const user = JSON.parse(savedUser)
+        setCurrentUser(user)
+        setSelectedRegion(user.region || 'National Capital Region — Metro Manila')
+        setSelectedCity(user.city || 'Malabon')
+        setSelectedBarangays(Array.isArray(user.barangays) ? user.barangays : ['Concepcion', 'Bayan-bayanan'])
+        setScreen('map')
+      } catch (e) {
+        console.warn('Failed to restore session:', e)
+        localStorage.removeItem('bahaba_app_user')
+        localStorage.removeItem('bahaba_app_session_expiry')
+      }
+    } else {
+      localStorage.removeItem('bahaba_app_user')
+      localStorage.removeItem('bahaba_app_session_expiry')
+    }
+
+    // Check for verification link in URL
     if (new URLSearchParams(window.location.search).get('verified') === '1') {
       window.history.replaceState({}, document.title, window.location.pathname)
       setScreen('verify')
     }
   }, [])
 
-  const filteredMapCards = useMemo(() => {
-    if (severity === 'all') return mapCards
-    return mapCards.filter((item) => item.risk === severity)
-  }, [severity])
-
-  const filteredSearchResults = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase()
-
-    if (!query) {
-      return locationSearchSuggestions.slice(0, 5)
+  // Save user to localStorage when they log in
+  const saveUserSession = (user) => {
+    try {
+      localStorage.setItem('bahaba_app_user', JSON.stringify(user))
+      const expiryDate = new Date()
+      expiryDate.setDate(expiryDate.getDate() + 30) // 30 days
+      localStorage.setItem('bahaba_app_session_expiry', expiryDate.getTime().toString())
+    } catch (e) {
+      console.warn('Failed to save session:', e)
     }
+  }
 
-    return locationSearchSuggestions.filter((item) =>
-      item.name.toLowerCase().includes(query) || item.city.toLowerCase().includes(query),
-    )
-  }, [searchTerm])
+  const clearUserSession = () => {
+    try {
+      localStorage.removeItem('bahaba_app_user')
+      localStorage.removeItem('bahaba_app_session_expiry')
+    } catch (e) {
+      console.warn('Failed to clear session:', e)
+    }
+  }
 
   const toggleBarangay = (barangay) => {
     setSelectedBarangays((current) =>
@@ -205,11 +213,15 @@ function App() {
 
   const continueSignup = () => {
     setAuthError('')
-    if (!/^[^\s@]+@gmail\.com$/i.test(signupForm.email.trim())) {
+    const email = String(signupForm?.email ?? '').trim()
+    const username = String(signupForm?.username ?? '').trim()
+    const password = String(signupForm?.password ?? '')
+
+    if (!/^[^\s@]+@gmail\.com$/i.test(email)) {
       setAuthError('Please enter a valid Gmail address ending in @gmail.com.')
       return
     }
-    if (!signupForm.username.trim() || signupForm.password.length < 8) {
+    if (!username || password.length < 8) {
       setAuthError('Add a username and a password with at least 8 characters.')
       return
     }
@@ -218,13 +230,19 @@ function App() {
 
   const saveCreatedAccount = async () => {
     setAuthError('')
-    if (!selectedCity || selectedBarangays.length === 0) {
+    const safeBarangays = Array.isArray(selectedBarangays) ? selectedBarangays : []
+    if (!selectedCity || safeBarangays.length === 0) {
       setAuthError('Select a city and at least one barangay before creating your account.')
       return
     }
     setAuthBusy(true)
     try {
-      await signup({ ...signupForm, region: selectedRegion, city: selectedCity, barangays: selectedBarangays })
+      await signup({
+        ...signupForm,
+        region: selectedRegion,
+        city: selectedCity,
+        barangays: safeBarangays,
+      })
       setSignupForm(emptySignup)
       setScreen('verify')
     } catch (error) {
@@ -239,10 +257,12 @@ function App() {
     setAuthBusy(true)
     try {
       const result = await login(loginForm)
+      const userBarangays = Array.isArray(result?.user?.barangays) ? result.user.barangays : []
       setCurrentUser(result.user)
+      saveUserSession(result.user)
       setSelectedRegion(result.user.region || selectedRegion)
       setSelectedCity(result.user.city || selectedCity)
-      setSelectedBarangays(result.user.barangays || selectedBarangays)
+      setSelectedBarangays(userBarangays.length ? userBarangays : selectedBarangays)
       setScreen('map')
     } catch (error) {
       setAuthError(error.message)
@@ -258,10 +278,25 @@ function App() {
     try {
       const result = await checkVerification()
       setCurrentUser(result.user)
+      saveUserSession(result.user)
       setSelectedRegion(result.user.region || selectedRegion)
       setSelectedCity(result.user.city || selectedCity)
       setSelectedBarangays(result.user.barangays || selectedBarangays)
       setScreen('map')
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleResendVerification = async () => {
+    setAuthError('')
+    setAuthNotice('')
+    setAuthBusy(true)
+    try {
+      const result = await resendVerification()
+      setAuthNotice(result.message)
     } catch (error) {
       setAuthError(error.message)
     } finally {
@@ -276,6 +311,7 @@ function App() {
       // Return to the signed-out screen even if the API session already expired.
     }
     setCurrentUser(null)
+    clearUserSession()
     setLoginForm({ email: '', password: '' })
     setScreen('splash')
   }
@@ -398,7 +434,7 @@ function App() {
         )
 
       case 'verify':
-        return <AuthPage mode="verify" onVerify={handleVerificationCheck} onSwitchMode={(nextMode) => { setAuthError(''); setScreen(nextMode) }} error={authError} busy={authBusy} />
+        return <AuthPage mode="verify" onVerify={handleVerificationCheck} onResendVerification={handleResendVerification} onSwitchMode={(nextMode) => { setAuthError(''); setAuthNotice(''); setScreen(nextMode) }} error={authError} notice={authNotice} busy={authBusy} />
 
       case 'region':
         return (
@@ -473,11 +509,7 @@ function App() {
           <MapPage
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
-            filteredSearchResults={filteredSearchResults}
             setSelectedBarangays={setSelectedBarangays}
-            severity={severity}
-            setSeverity={setSeverity}
-            filteredMapCards={filteredMapCards}
             navigation={navigation}
             activeNav={activeNav}
             setActiveNav={setActiveNav}

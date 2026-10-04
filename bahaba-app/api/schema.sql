@@ -7,6 +7,7 @@ CREATE TABLE users (
   username VARCHAR(50) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   location VARCHAR(255) NULL,
+  selected_location VARCHAR(32) NULL,
   region VARCHAR(150) NULL,
   city VARCHAR(100) NULL,
   barangays JSON NULL,
@@ -14,6 +15,11 @@ CREATE TABLE users (
   verification_expires_at DATETIME NULL,
   email_verified_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS locations (
+  id VARCHAR(32) PRIMARY KEY,
+  display_name VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -24,6 +30,7 @@ CREATE TABLE IF NOT EXISTS reports (
   reporter VARCHAR(150) NOT NULL,
   source VARCHAR(50) NOT NULL DEFAULT 'citizen',
   platform VARCHAR(50) NULL,
+  location_id VARCHAR(32) NULL,
   description TEXT NOT NULL,
   status ENUM('pending', 'verified', 'rejected') NOT NULL DEFAULT 'pending',
   photo BOOLEAN NOT NULL DEFAULT FALSE,
@@ -34,9 +41,24 @@ CREATE TABLE IF NOT EXISTS announcements (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   city VARCHAR(100) NOT NULL,
   barangay VARCHAR(100) NOT NULL,
+  location_id VARCHAR(32) NULL,
   title VARCHAR(255) NOT NULL,
   body TEXT NOT NULL,
   status ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS command_centers (
+  location_id VARCHAR(32) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL DEFAULT '',
+  hotline VARCHAR(100) NOT NULL DEFAULT '',
+  telephone VARCHAR(100) NOT NULL DEFAULT '',
+  mobile_number VARCHAR(100) NOT NULL DEFAULT '',
+  address VARCHAR(500) NOT NULL DEFAULT '',
+  email VARCHAR(254) NOT NULL DEFAULT '',
+  facebook_page VARCHAR(500) NOT NULL DEFAULT '',
+  emergency_contact TEXT NOT NULL,
+  other_information TEXT NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 

@@ -20,3 +20,6 @@ export const login = (data) => request('login.php', { method: 'POST', body: JSON
 export const resendVerification = () => request('resend-verification.php', { method: 'POST' })
 export const checkVerification = () => request('me.php')
 export const logout = () => request('logout.php', { method: 'POST' })
+export const getProfile = () => request('profile.php')
+export const updateProfile = (data) => request('profile.php', { method: 'PUT', body: JSON.stringify(data) })
+export const getLocationData = () => request('location-data.php')

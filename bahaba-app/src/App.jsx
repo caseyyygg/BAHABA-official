@@ -7,7 +7,8 @@ import MapPage from './pages/MapPage'
 import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
-import { checkVerification, login, logout, resendVerification, signup } from './api'
+import { checkVerification, getLocationData, getProfile, login, logout, resendVerification, signup, updateProfile } from './api'
+import { locationById, supportedLocations } from './locations'
 
 const regions = [
   'National Capital Region — Metro Manila',
@@ -81,6 +82,7 @@ const emptySignup = {
   username: '',
   password: '',
   location: '',
+  selected_location: '',
 }
 
 function App() {
@@ -104,6 +106,9 @@ function App() {
   const [locationStatus, setLocationStatus] = useState('')
   const [notificationStatus, setNotificationStatus] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
+  const [locationData, setLocationData] = useState({ reports: [], nlp_events: [], announcements: [], command_center: null })
+  const [locationChangeStatus, setLocationChangeStatus] = useState('')
+  const [locationChangeBusy, setLocationChangeBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
@@ -115,18 +120,14 @@ function App() {
     const sessionExpiry = localStorage.getItem('bahaba_app_session_expiry')
     
     if (savedUser && sessionExpiry && new Date().getTime() < parseInt(sessionExpiry)) {
-      try {
-        const user = JSON.parse(savedUser)
+      getProfile().then(({ user }) => {
         setCurrentUser(user)
         setSelectedRegion(user.region || 'National Capital Region — Metro Manila')
-        setSelectedCity(user.city || 'Malabon')
-        setSelectedBarangays(Array.isArray(user.barangays) ? user.barangays : ['Concepcion', 'Bayan-bayanan'])
-        setScreen('map')
-      } catch (e) {
-        console.warn('Failed to restore session:', e)
-        localStorage.removeItem('bahaba_app_user')
-        localStorage.removeItem('bahaba_app_session_expiry')
-      }
+        setSelectedCity(locationById(user.selected_location)?.city || user.city || '')
+        setSelectedBarangays(Array.isArray(user.barangays) ? user.barangays : [])
+        setScreen(user.selected_location ? 'map' : 'settings')
+        saveUserSession(user)
+      }).catch(() => clearUserSession())
     } else {
       localStorage.removeItem('bahaba_app_user')
       localStorage.removeItem('bahaba_app_session_expiry')
@@ -138,6 +139,29 @@ function App() {
       setScreen('verify')
     }
   }, [])
+
+  useEffect(() => {
+    if (!currentUser?.selected_location) {
+      setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null })
+      return undefined
+    }
+
+    let cancelled = false
+    const refreshLocationData = () => getLocationData().then((data) => {
+      if (!cancelled) setLocationData(data)
+    }).catch((error) => {
+      if (!cancelled) {
+        setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null })
+        console.warn('Could not load location data:', error.message)
+      }
+    })
+    refreshLocationData()
+    const refreshTimer = window.setInterval(refreshLocationData, 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(refreshTimer)
+    }
+  }, [currentUser?.id, currentUser?.selected_location])
 
   // Save user to localStorage when they log in
   const saveUserSession = (user) => {
@@ -211,11 +235,15 @@ function App() {
     setSignupForm((current) => ({ ...current, [field]: value }))
   }
 
-  const continueSignup = () => {
+  const continueSignup = async () => {
     setAuthError('')
     const email = String(signupForm?.email ?? '').trim()
     const username = String(signupForm?.username ?? '').trim()
     const password = String(signupForm?.password ?? '')
+    if (!locationById(signupForm.selected_location)) {
+      setAuthError('Choose one of the supported locations before creating your account.')
+      return
+    }
 
     if (!/^[^\s@]+@gmail\.com$/i.test(email)) {
       setAuthError('Please enter a valid Gmail address ending in @gmail.com.')
@@ -225,7 +253,16 @@ function App() {
       setAuthError('Add a username and a password with at least 8 characters.')
       return
     }
-    setScreen('region')
+    setAuthBusy(true)
+    try {
+      await signup({ ...signupForm, selected_location: signupForm.selected_location })
+      setSignupForm(emptySignup)
+      setScreen('verify')
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthBusy(false)
+    }
   }
 
   const saveCreatedAccount = async () => {
@@ -239,6 +276,7 @@ function App() {
     try {
       await signup({
         ...signupForm,
+        selected_location: signupForm.selected_location,
         region: selectedRegion,
         city: selectedCity,
         barangays: safeBarangays,
@@ -261,9 +299,9 @@ function App() {
       setCurrentUser(result.user)
       saveUserSession(result.user)
       setSelectedRegion(result.user.region || selectedRegion)
-      setSelectedCity(result.user.city || selectedCity)
-      setSelectedBarangays(userBarangays.length ? userBarangays : selectedBarangays)
-      setScreen('map')
+      setSelectedCity(locationById(result.user.selected_location)?.city || result.user.city || '')
+      setSelectedBarangays(userBarangays)
+      setScreen(result.user.selected_location ? 'map' : 'settings')
     } catch (error) {
       setAuthError(error.message)
       if (error.needsVerification) setScreen('verify')
@@ -280,9 +318,9 @@ function App() {
       setCurrentUser(result.user)
       saveUserSession(result.user)
       setSelectedRegion(result.user.region || selectedRegion)
-      setSelectedCity(result.user.city || selectedCity)
-      setSelectedBarangays(result.user.barangays || selectedBarangays)
-      setScreen('map')
+      setSelectedCity(locationById(result.user.selected_location)?.city || result.user.city || '')
+      setSelectedBarangays(result.user.barangays || [])
+      setScreen(result.user.selected_location ? 'map' : 'settings')
     } catch (error) {
       setAuthError(error.message)
     } finally {
@@ -314,6 +352,25 @@ function App() {
     clearUserSession()
     setLoginForm({ email: '', password: '' })
     setScreen('splash')
+  }
+
+  const handleDesiredLocationChange = async (selectedLocation) => {
+    setLocationChangeStatus('')
+    setLocationChangeBusy(true)
+    try {
+      const result = await updateProfile({ selected_location: selectedLocation })
+      setCurrentUser(result.user)
+      saveUserSession(result.user)
+      setSelectedRegion(result.user.region)
+      setSelectedCity(locationById(result.user.selected_location)?.city || '')
+      setSelectedBarangays([])
+      setActiveNav('map')
+      setScreen('map')
+    } catch (error) {
+      setLocationChangeStatus(error.message)
+    } finally {
+      setLocationChangeBusy(false)
+    }
   }
 
   const handleLocationToggle = (enabled) => {
@@ -406,6 +463,7 @@ function App() {
           <AuthPage
             mode="signup"
             signupForm={signupForm}
+            supportedLocations={supportedLocations}
             loginForm={loginForm}
             onSignupFieldChange={handleSignupChange}
             onLoginFieldChange={(field, value) => setLoginForm((current) => ({ ...current, [field]: value }))}
@@ -507,9 +565,13 @@ function App() {
       case 'map':
         return (
           <MapPage
+            key={currentUser?.selected_location || 'no-location'}
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
             setSelectedBarangays={setSelectedBarangays}
+            selectedLocationId={currentUser?.selected_location}
+            reports={locationData.reports}
+            nlpEvents={locationData.nlp_events}
             navigation={navigation}
             activeNav={activeNav}
             setActiveNav={setActiveNav}
@@ -522,6 +584,10 @@ function App() {
           <AlertsPage
             currentUser={currentUser}
             selectedCity={selectedCity}
+            reports={locationData.reports}
+            nlpEvents={locationData.nlp_events}
+            announcements={locationData.announcements}
+            commandCenter={locationData.command_center}
             navigation={navigation}
             activeNav={activeNav}
             setActiveNav={setActiveNav}
@@ -532,7 +598,11 @@ function App() {
       case 'command':
         return (
           <CommandPage
-            selectedBarangays={selectedBarangays}
+            selectedCity={selectedCity}
+            reports={locationData.reports}
+            nlpEvents={locationData.nlp_events}
+            announcements={locationData.announcements}
+            commandCenter={locationData.command_center}
             navigation={navigation}
             activeNav={activeNav}
             setActiveNav={setActiveNav}
@@ -561,6 +631,10 @@ function App() {
             notificationStatus={notificationStatus}
             currentLocation={currentLocation}
             currentPlace={currentPlace}
+            supportedLocations={supportedLocations}
+            onDesiredLocationChange={handleDesiredLocationChange}
+            locationChangeBusy={locationChangeBusy}
+            locationChangeStatus={locationChangeStatus}
             selectedCity={selectedCity}
             selectedBarangays={selectedBarangays}
           />

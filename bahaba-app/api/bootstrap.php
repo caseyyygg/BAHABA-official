@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/location_helpers.php';
+
 $configPath = __DIR__ . '/config.php';
 if (!is_file($configPath)) {
     http_response_code(500);
@@ -69,6 +71,8 @@ try {
     exit;
 }
 
+bahaba_ensure_location_schema($pdo);
+
 function request_json(): array
 {
     $payload = json_decode(file_get_contents('php://input'), true);
@@ -89,6 +93,8 @@ function public_user(array $user): array
         'email' => $user['email'],
         'username' => $user['username'],
         'location' => $user['location'],
+        'selected_location' => $user['selected_location'] ?? null,
+        'selected_location_name' => bahaba_location_display_name($user['selected_location'] ?? null),
         'region' => $user['region'],
         'city' => $user['city'],
         'barangays' => $user['barangays'] ? json_decode($user['barangays'], true) : [],

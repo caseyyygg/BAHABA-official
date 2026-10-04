@@ -315,7 +315,8 @@
   color: #edf5ff;
 }
 
-.app-shell.theme-dark .input-wrap input {
+.app-shell.theme-dark .input-wrap input,
+.app-shell.theme-dark .input-wrap select {
   background: #1d2d3d;
   border-color: #354d66;
   color: #edf5ff;
@@ -391,6 +392,7 @@
 
 .app-shell.theme-dark .settings-row,
 .app-shell.theme-dark .settings-form input,
+.app-shell.theme-dark .settings-form select,
 .app-shell.theme-dark .alert-box,
 .app-shell.theme-dark .alert-row,
 .app-shell.theme-dark .stats-grid > div,
@@ -399,7 +401,8 @@
   color: #edf5ff;
 }
 
-.app-shell.theme-dark .settings-form input {
+.app-shell.theme-dark .settings-form input,
+.app-shell.theme-dark .settings-form select {
   background: #1a2d3d;
   border-color: #35506b;
   color: #edf5ff;
@@ -451,7 +454,8 @@
   color: #7a828b;
 }
 
-.input-wrap input {
+.input-wrap input,
+.input-wrap select {
   width: 100%;
   border: 1px solid #d5dfe8;
   border-radius: 10px;
@@ -462,7 +466,8 @@
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.input-wrap input:focus {
+.input-wrap input:focus,
+.input-wrap select:focus {
   outline: none;
   border-color: #7bb9ff;
   box-shadow: 0 0 0 3px rgba(123, 185, 255, 0.18);
@@ -1511,6 +1516,29 @@
   padding: 12px 14px;
   font-size: 14px;
   color: #2a3038;
+}
+
+.settings-form label {
+  color: #526170;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-form select {
+  width: 100%;
+  border: 1px solid #d4dce4;
+  background: #eef3f7;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: #2a3038;
+}
+
+.location-settings-form {
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #dee5eb;
+  border-radius: 12px;
 }
 
 .muted-button {

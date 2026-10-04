@@ -1,4 +1,4 @@
-export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace }) {
+export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, supportedLocations, onDesiredLocationChange, locationChangeBusy, locationChangeStatus }) {
   return (
     <div className="phone-screen settings-screen">
       <div className="statusbar">
@@ -17,6 +17,7 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
         <div>
           <strong>{currentUser?.username || 'John Doe'}</strong>
           <small>{currentUser?.email || 'johndoe@gmail.com'}</small>
+          <small className="profile-location">Desired location: {currentUser?.selected_location_name || 'Choose a supported location'}</small>
           <small className="profile-location">
             {locationSharingEnabled && currentPlace && currentPlace !== 'Finding your place...'
               ? `Sharing: ${currentPlace}`
@@ -25,6 +26,22 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
               : 'Not sharing location'}
           </small>
         </div>
+      </div>
+
+      <div className="settings-form location-settings-form">
+        <label htmlFor="desired-location">Change Desired Location</label>
+        <select
+          id="desired-location"
+          value={currentUser?.selected_location || ''}
+          onChange={(event) => onDesiredLocationChange(event.target.value)}
+          disabled={locationChangeBusy}
+        >
+          <option value="" disabled>Select a location</option>
+          {supportedLocations.map((location) => (
+            <option key={location.id} value={location.id}>{location.name}</option>
+          ))}
+        </select>
+        {locationChangeStatus && <p className="auth-error">{locationChangeStatus}</p>}
       </div>
 
       <div className="settings-list">

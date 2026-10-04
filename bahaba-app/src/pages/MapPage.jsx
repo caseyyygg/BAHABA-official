@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import mapGeometry from '../assets/targeted-barangay-geometry.json'
+import { locationById } from '../locations'
 
 const MAP_WIDTH = 1000
 const MAP_HEIGHT = 680
@@ -310,24 +311,29 @@ export default function MapPage({
   searchTerm,
   setSearchTerm,
   setSelectedBarangays,
+  selectedLocationId,
+  reports = [],
+  nlpEvents = [],
   navigation,
   activeNav,
   setActiveNav,
   setScreen,
 }) {
   const mapRefs = useRef({})
-  const mapAreas = ['Malabon', 'Navotas', 'Marikina', 'Pampanga', 'Bulacan'].map((name) => ({
-    name,
-    features: mapGeometry.features.filter((feature) => feature.properties.city === name),
-  }))
+  const location = locationById(selectedLocationId)
+  const mapFeatures = location
+    ? mapGeometry.features.filter((feature) => feature.properties.city === location.map_city
+      && (!location.map_municipality || feature.properties.municipality === location.map_municipality))
+    : []
+  const mapAreas = location ? [{ name: location.name, features: mapFeatures }] : []
   const query = searchTerm.trim().toLowerCase()
   const searchResults = query
-    ? mapGeometry.features.filter((feature) => [
+    ? mapFeatures.filter((feature) => [
       feature.properties.name,
       feature.properties.city,
       feature.properties.municipality,
     ].some((value) => value.toLowerCase().includes(query))).slice(0, 8)
-    : mapGeometry.features.slice(0, 5)
+    : []
 
   const focusBarangay = (city, featureId) => {
     mapRefs.current[city]?.focusFeature(featureId)
@@ -393,7 +399,7 @@ export default function MapPage({
               <header className="map-area-heading">
                 <div>
                   <h2>{area.name}</h2>
-                  <p>{area.features.length} barangays</p>
+                  <p>{area.features.length} barangays · {reports.length + nlpEvents.length} local flood reports</p>
                 </div>
               </header>
               {area.features.length > 0 && (
@@ -419,6 +425,7 @@ export default function MapPage({
             </section>
           ))}
         </div>
+        {!mapFeatures.length && <p className="empty-state">No map boundaries are available for this location.</p>}
       </div>
 
       <div className="bottom-nav">

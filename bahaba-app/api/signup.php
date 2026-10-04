@@ -10,6 +10,7 @@ $data = request_json();
 $email = strtolower(trim((string) ($data['email'] ?? '')));
 $username = trim((string) ($data['username'] ?? ''));
 $password = (string) ($data['password'] ?? '');
+$selectedLocation = bahaba_location_by_id((string) ($data['selected_location'] ?? ''));
 
 if (!preg_match('/^[A-Za-z0-9._%+-]+@gmail\.com$/i', $email)) {
     respond(['error' => 'Please use a valid Gmail address ending in @gmail.com.'], 422);
@@ -25,6 +26,9 @@ if (strlen($username) < 3 || strlen($username) > 50) {
 if (strlen($password) < 8) {
     respond(['error' => 'Password must be at least 8 characters.'], 422);
 }
+if (!$selectedLocation) {
+    respond(['error' => 'Choose one of the supported locations before creating your account.'], 422);
+}
 
 $token = bin2hex(random_bytes(32));
 $tokenHash = hash('sha256', $token);
@@ -32,17 +36,18 @@ $expiresAt = (new DateTimeImmutable('+24 hours'))->format('Y-m-d H:i:s');
 
 try {
     $statement = $pdo->prepare(
-        'INSERT INTO users (email, username, password_hash, location, region, city, barangays, verification_token_hash, verification_expires_at)
-         VALUES (:email, :username, :password_hash, :location, :region, :city, :barangays, :token_hash, :expires_at)',
+        'INSERT INTO users (email, username, password_hash, location, selected_location, region, city, barangays, verification_token_hash, verification_expires_at)
+         VALUES (:email, :username, :password_hash, :location, :selected_location, :region, :city, :barangays, :token_hash, :expires_at)',
     );
     $statement->execute([
         'email' => $email,
         'username' => $username,
         'password_hash' => password_hash($password, PASSWORD_DEFAULT),
         'location' => trim((string) ($data['location'] ?? '')),
-        'region' => trim((string) ($data['region'] ?? '')),
-        'city' => trim((string) ($data['city'] ?? '')),
-        'barangays' => json_encode($data['barangays'] ?? []),
+        'selected_location' => $selectedLocation['id'],
+        'region' => $selectedLocation['region'],
+        'city' => $selectedLocation['city'],
+        'barangays' => json_encode([]),
         'token_hash' => $tokenHash,
         'expires_at' => $expiresAt,
     ]);

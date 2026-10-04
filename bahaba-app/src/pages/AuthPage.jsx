@@ -1,6 +1,7 @@
 export default function AuthPage({
   mode = 'signup',
   signupForm,
+  supportedLocations = [],
   loginForm,
   onSignupFieldChange,
   onLoginFieldChange,
@@ -148,10 +149,29 @@ export default function AuthPage({
         </div>
 
         <div className="field-block">
-          <label>Location</label>
+          <label htmlFor="signup-location">Desired Location</label>
           <div className="input-wrap">
             <span className="field-icon">📍</span>
+            <select
+              id="signup-location"
+              value={signupForm.selected_location}
+              onChange={(e) => onSignupFieldChange('selected_location', e.target.value)}
+              required
+            >
+              <option value="">Select your location</option>
+              {supportedLocations.map((location) => (
+                <option key={location.id} value={location.id}>{location.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="field-block">
+          <label htmlFor="signup-address">Home Address</label>
+          <div className="input-wrap">
+            <span className="field-icon">⌖</span>
             <input
+              id="signup-address"
               type="text"
               placeholder="Enter Home Address"
               value={signupForm.location}

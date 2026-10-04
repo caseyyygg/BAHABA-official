@@ -1,4 +1,5 @@
-export default function CommandPage({ selectedBarangays, navigation, activeNav, setActiveNav, setScreen }) {
+export default function CommandPage({ selectedCity, reports = [], nlpEvents = [], announcements = [], commandCenter, navigation, activeNav, setActiveNav, setScreen }) {
+  const locationReports = [...reports, ...nlpEvents]
   return (
     <div className="phone-screen command-screen">
       <div className="statusbar">
@@ -18,25 +19,35 @@ export default function CommandPage({ selectedBarangays, navigation, activeNav, 
       </div>
 
       <div className="stats-panel compact-panel">
-        <h3>Selected barangays</h3>
+        <h3>{commandCenter?.name || `${selectedCity || 'Local'} Command Center`}</h3>
+        <p>{commandCenter?.address || 'Command Center contact details have not been provided yet.'}</p>
         <div className="alert-list small-list">
-          {(selectedBarangays.length ? selectedBarangays : ['Concepcion']).map((barangay) => (
-            <div key={barangay} className="alert-row">
-              <span>{barangay}</span>
-              <span className="risk-tag red">High</span>
-            </div>
+          {[
+            ['Hotline', commandCenter?.hotline],
+            ['Telephone', commandCenter?.telephone],
+            ['Mobile', commandCenter?.mobile_number],
+            ['Email', commandCenter?.email],
+            ['Facebook', commandCenter?.facebook_page],
+          ].filter(([, value]) => value).map(([label, value]) => (
+            <div key={label} className="alert-row"><span>{label}</span><strong>{value}</strong></div>
           ))}
         </div>
+        {commandCenter?.emergency_contact && <p>{commandCenter.emergency_contact}</p>}
+        {commandCenter?.other_information && <p>{commandCenter.other_information}</p>}
       </div>
 
       <div className="stats-panel compact-panel">
-        <h3>Incident metrics</h3>
-        <div className="stats-grid">
-          <div><strong>121,408</strong><small>People affected</small></div>
-          <div><strong>408</strong><small>Evacuation centers</small></div>
-          <div><strong>4</strong><small>Teams</small></div>
-          <div><strong>5</strong><small>Rooms</small></div>
+        <h3>Flood reports · {locationReports.length}</h3>
+        <div className="alert-list small-list">
+          {locationReports.slice(0, 5).map((report) => (
+            <div key={`${report.id || report.created_at}-${report.barangay || ''}`} className="alert-row">
+              <span>{report.barangay || selectedCity}</span>
+              <span className="risk-tag red">{report.severity || 'Report'}</span>
+            </div>
+          ))}
+          {!locationReports.length && <div className="alert-row"><span>No current flood reports for {selectedCity}.</span></div>}
         </div>
+        {announcements.length > 0 && <p>{announcements.length} published local advisories.</p>}
       </div>
 
       <div className="bottom-nav">

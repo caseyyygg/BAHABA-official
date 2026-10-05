@@ -162,6 +162,24 @@ function bahaba_ensure_location_schema(PDO $pdo): void
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )");
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS evacuation_centers (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        location_id VARCHAR(32) NOT NULL,
+        city VARCHAR(150) NOT NULL,
+        barangay VARCHAR(150) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        address VARCHAR(500) NOT NULL DEFAULT '',
+        capacity INT UNSIGNED NOT NULL,
+        evacuees INT UNSIGNED NOT NULL DEFAULT 0,
+        created_by VARCHAR(255) NOT NULL,
+        created_by_admin_id BIGINT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_evacuation_centers_location_barangay (location_id, barangay),
+        CONSTRAINT fk_evacuation_centers_location FOREIGN KEY (location_id) REFERENCES locations (id) ON UPDATE CASCADE ON DELETE CASCADE
+    )");
+    bahaba_ensure_column($pdo, 'evacuation_centers', 'created_by_admin_id', 'BIGINT UNSIGNED NULL');
+
     if (!$hasMigration('location_access_command_centers_v1')) {
         bahaba_ensure_location_foreign_key($pdo, 'command_centers', 'location_id', 'CASCADE');
         $markMigration->execute(['version' => 'location_access_command_centers_v1']);

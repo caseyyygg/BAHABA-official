@@ -10,6 +10,23 @@ import SettingsPage from './pages/SettingsPage'
 import { checkVerification, getLocationData, getProfile, login, logout, resendVerification, signup, updateProfile } from './api'
 import { locationById, supportedLocations } from './locations'
 
+const getPlaceName = async ({ latitude, longitude }) => {
+  const response = await fetch(
+    `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
+  )
+  if (!response.ok) throw new Error('Could not look up your address. Please enter it manually.')
+
+  const place = await response.json()
+  const area = place.locality || place.city || place.principalSubdivision
+  if (!area) throw new Error('Could not identify your current area. Please enter your address manually.')
+
+  const neighborhood = place.localityInfo?.administrative?.find((item) =>
+    ['suburb', 'neighbourhood', 'borough'].includes(item.description?.toLowerCase()),
+  )?.name
+
+  return neighborhood ? `${neighborhood}, ${area}` : area
+}
+
 const regions = [
   'National Capital Region — Metro Manila',
   'Cordillera Administrative Region',
@@ -71,10 +88,10 @@ const regionCodes = {
 }
 
 const navigation = [
-  { id: 'alerts', label: 'Alerts', icon: '⚑' },
-  { id: 'map', label: 'Map', icon: '🗺' },
-  { id: 'command', label: 'Command', icon: '☎' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
+  { id: 'alerts', label: 'Alerts', icon: 'alerts' },
+  { id: 'map', label: 'Map', icon: 'map' },
+  { id: 'command', label: 'Command', icon: 'command' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
 
 const emptySignup = {
@@ -106,12 +123,14 @@ function App() {
   const [locationStatus, setLocationStatus] = useState('')
   const [notificationStatus, setNotificationStatus] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
-  const [locationData, setLocationData] = useState({ reports: [], nlp_events: [], announcements: [], command_center: null })
+  const [locationData, setLocationData] = useState({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
   const [locationChangeStatus, setLocationChangeStatus] = useState('')
   const [locationChangeBusy, setLocationChangeBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
+  const [signupLocationBusy, setSignupLocationBusy] = useState(false)
+  const [signupLocationNotice, setSignupLocationNotice] = useState(null)
 
   // Session persistence
   useEffect(() => {
@@ -142,7 +161,7 @@ function App() {
 
   useEffect(() => {
     if (!currentUser?.selected_location) {
-      setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null })
+      setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
       return undefined
     }
 
@@ -151,7 +170,7 @@ function App() {
       if (!cancelled) setLocationData(data)
     }).catch((error) => {
       if (!cancelled) {
-        setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null })
+        setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
         console.warn('Could not load location data:', error.message)
       }
     })
@@ -208,31 +227,71 @@ function App() {
     setSelectedCity('')
     setSelectedBarangays([])
     setLocationDataLoading(true)
-    const citiesForRegion = await loadLocationData(
-      `https://psgc.gitlab.io/api/regions/${regionCodes[region]}/cities-municipalities/`,
-      region === 'National Capital Region — Metro Manila' ? fallbackCities : [],
-    )
-    setAvailableCities(citiesForRegion)
-    setLocationDataLoading(false)
     setScreen('city')
+    try {
+      const citiesForRegion = await loadLocationData(
+        `https://psgc.gitlab.io/api/regions/${regionCodes[region]}/cities-municipalities/`,
+        region === 'National Capital Region — Metro Manila' ? fallbackCities : [],
+      )
+      setAvailableCities(citiesForRegion)
+    } finally {
+      setLocationDataLoading(false)
+    }
   }
 
   const handleCitySelect = async (city) => {
     setSelectedCity(city.name)
     setSelectedBarangays([])
     setLocationDataLoading(true)
-    const fallback = city.name === 'Malabon' ? fallbackBarangays : []
-    const barangaysForCity = await loadLocationData(
-      `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays/`,
-      fallback,
-    )
-    setAvailableBarangays(barangaysForCity.map((item) => item.name))
-    setLocationDataLoading(false)
     setScreen('barangay')
+    try {
+      const fallback = city.name === 'Malabon' ? fallbackBarangays : []
+      const barangaysForCity = await loadLocationData(
+        `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays/`,
+        fallback,
+      )
+      setAvailableBarangays(barangaysForCity.map((item) => item.name))
+    } finally {
+      setLocationDataLoading(false)
+    }
   }
 
   const handleSignupChange = (field, value) => {
     setSignupForm((current) => ({ ...current, [field]: value }))
+    if (field === 'location') setSignupLocationNotice(null)
+  }
+
+  const handleUseSignupLocation = async () => {
+    setSignupLocationNotice(null)
+    if (!navigator.geolocation) {
+      setSignupLocationNotice({ type: 'error', text: 'Location is not available in this browser. You can enter your address manually.' })
+      return
+    }
+
+    setSignupLocationBusy(true)
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000,
+        })
+      })
+      const placeName = await getPlaceName(position.coords)
+      handleSignupChange('location', placeName)
+      setSignupLocationNotice({ type: 'success', text: `Location added: ${placeName}` })
+    } catch (error) {
+      const message = error.code === 1
+        ? 'Location permission was not granted. You can enter your address manually.'
+        : error.code === 2
+          ? 'Your location could not be determined. You can enter your address manually.'
+          : error.code === 3
+            ? 'Location request timed out. Try again or enter your address manually.'
+            : error.message || 'Could not get your location. You can enter your address manually.'
+      setSignupLocationNotice({ type: 'error', text: message })
+    } finally {
+      setSignupLocationBusy(false)
+    }
   }
 
   const continueSignup = async () => {
@@ -343,15 +402,13 @@ function App() {
   }
 
   const handleLogout = async () => {
-    try {
-      await logout()
-    } catch {
-      // Return to the signed-out screen even if the API session already expired.
-    }
     setCurrentUser(null)
     clearUserSession()
     setLoginForm({ email: '', password: '' })
     setScreen('splash')
+    logout().catch((error) => {
+      console.warn('Could not end the server session during logout:', error.message)
+    })
   }
 
   const handleDesiredLocationChange = async (selectedLocation) => {
@@ -397,16 +454,10 @@ function App() {
         setCurrentLocation({ latitude: coords.latitude, longitude: coords.longitude })
         setCurrentPlace('Finding your place...')
         setLocationStatus('Finding your current place...')
-        fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=en`)
-          .then((response) => response.ok ? response.json() : Promise.reject(new Error('Reverse geocoding failed')))
-          .then((place) => {
-            const area = place.locality || place.city || place.principalSubdivision || 'Current location'
-            const neighborhood = place.localityInfo?.administrative?.find((item) =>
-              ['suburb', 'neighbourhood', 'borough'].includes(item.description?.toLowerCase()),
-            )?.name
-            const label = neighborhood ? `${neighborhood}, ${area}` : area
-            setCurrentPlace(label)
-            setLocationStatus(`Location active: ${label}.`)
+        getPlaceName(coords)
+          .then((placeName) => {
+            setCurrentPlace(placeName)
+            setLocationStatus(`Location active: ${placeName}.`)
           })
           .catch(() => {
             setCurrentPlace('Place unavailable')
@@ -464,6 +515,9 @@ function App() {
             mode="signup"
             signupForm={signupForm}
             supportedLocations={supportedLocations}
+            onUseSignupLocation={handleUseSignupLocation}
+            signupLocationBusy={signupLocationBusy}
+            signupLocationNotice={signupLocationNotice}
             loginForm={loginForm}
             onSignupFieldChange={handleSignupChange}
             onLoginFieldChange={(field, value) => setLoginForm((current) => ({ ...current, [field]: value }))}
@@ -526,7 +580,7 @@ function App() {
             <div className="statusbar">
               <span>9:47</span>
               <div className="status-icons">
-                <span className="signal"><i /></span>
+                <span className="signal"><i /><i /><i /><i /></span>
                 <span className="wifi" />
                 <span className="battery" />
               </div>
@@ -539,9 +593,16 @@ function App() {
 
             <button className="back-link" type="button" onClick={() => setScreen('city')}>← Back</button>
 
-            <div className="selection-list city-grid">
+            <div className="selection-list city-grid" aria-busy={locationDataLoading}>
               <div className="list-title">Barangays</div>
-              {availableBarangays.map((barangay) => (
+              {locationDataLoading && (
+                <div className="selection-skeleton-list" aria-label="Loading barangays">
+                  {Array.from({ length: 8 }, (_, index) => (
+                    <div className="selection-skeleton" key={index}><span /></div>
+                  ))}
+                </div>
+              )}
+              {!locationDataLoading && availableBarangays.map((barangay) => (
                 <button
                   key={barangay}
                   type="button"
@@ -554,8 +615,8 @@ function App() {
             </div>
 
             <div className="bottom-actions">
-              <button className="primary-button" onClick={saveCreatedAccount} disabled={authBusy}>
-                {authBusy ? 'CREATING ACCOUNT...' : 'Create Account'}
+              <button className="primary-button" onClick={saveCreatedAccount} disabled={authBusy || locationDataLoading}>
+                {locationDataLoading ? 'LOADING BARANGAYS...' : authBusy ? 'CREATING ACCOUNT...' : 'Create Account'}
               </button>
               {authError && <p className="auth-error selection-error">{authError}</p>}
             </div>
@@ -603,6 +664,7 @@ function App() {
             nlpEvents={locationData.nlp_events}
             announcements={locationData.announcements}
             commandCenter={locationData.command_center}
+            evacuationCenters={locationData.evacuation_centers}
             navigation={navigation}
             activeNav={activeNav}
             setActiveNav={setActiveNav}
@@ -645,7 +707,11 @@ function App() {
     }
   }
 
-  return <div className={`app-shell ${darkMode ? 'theme-dark' : ''}`}>{renderScreen()}</div>
+  return (
+    <div className={`app-shell ${darkMode ? 'theme-dark' : ''}`}>
+      {renderScreen()}
+    </div>
+  )
 }
 
 export default App

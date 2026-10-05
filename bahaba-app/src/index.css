@@ -1,13 +1,13 @@
 :root {
-  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  font-family: 'DM Sans', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #1a1d22;
-  background: #dbe5eb;
+  color: #172536;
+  background: #e8eef5;
 }
 
 * {
@@ -22,26 +22,29 @@ html, body, #root {
 
 body {
   min-height: 100vh;
+  min-height: 100svh;
   background:
-    radial-gradient(circle at 15% 10%, rgba(255, 255, 255, 0.85), transparent 30%),
-    linear-gradient(135deg, #e8eff3 0%, #d4e0e7 100%);
+    radial-gradient(circle at 14% 10%, rgba(255, 255, 255, 0.92), transparent 34%),
+    linear-gradient(135deg, #eff4f8 0%, #dce6f0 100%);
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
 button {
-  transition: opacity 0.2s ease;
-}
-
-button:hover {
-  opacity: 0.96;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:focus-visible,
-input:focus-visible {
-  outline: 3px solid rgba(27, 131, 239, 0.35);
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(35, 123, 219, 0.3);
   outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(35, 123, 219, 0.2);
 }

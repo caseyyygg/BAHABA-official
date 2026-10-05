@@ -32,6 +32,12 @@ $commandCenterStatement = $pdo->prepare(
      FROM command_centers WHERE location_id = :location_id LIMIT 1'
 );
 $commandCenterStatement->execute(['location_id' => $locationId]);
+$evacuationCentersStatement = $pdo->prepare(
+    'SELECT id, city, barangay, name, address, capacity, evacuees, created_by, created_at
+     FROM evacuation_centers WHERE location_id = :location_id
+     ORDER BY barangay, name, id'
+);
+$evacuationCentersStatement->execute(['location_id' => $locationId]);
 
 $nlpEvents = [];
 if (bahaba_table_exists($pdo, 'nlp_events')) {
@@ -50,4 +56,5 @@ respond([
     'nlp_events' => $nlpEvents,
     'announcements' => $announcementsStatement->fetchAll(),
     'command_center' => $commandCenterStatement->fetch() ?: null,
+    'evacuation_centers' => $evacuationCentersStatement->fetchAll(),
 ]);

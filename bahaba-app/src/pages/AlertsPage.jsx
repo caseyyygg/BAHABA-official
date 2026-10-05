@@ -1,3 +1,5 @@
+import { BrandMark, Icon } from '../components/Icon'
+
 export default function AlertsPage({ currentUser, selectedCity, reports = [], nlpEvents = [], announcements = [], commandCenter, navigation, activeNav, setActiveNav, setScreen }) {
   const floodItems = [...reports, ...nlpEvents]
   const riskLabel = floodItems.some((item) => String(item.severity).toLowerCase() === 'high')
@@ -8,7 +10,7 @@ export default function AlertsPage({ currentUser, selectedCity, reports = [], nl
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
-          <span className="signal"><i /></span>
+          <span className="signal"><i /><i /><i /><i /></span>
           <span className="wifi" />
           <span className="battery" />
         </div>
@@ -16,7 +18,7 @@ export default function AlertsPage({ currentUser, selectedCity, reports = [], nl
 
       <div className="top-banner alert-banner">
         <div className="logo-inline">
-          <span className="mini-mark" />
+          <BrandMark />
           <span>{currentUser ? `Good day, ${currentUser.username}` : 'Good day, John'}</span>
         </div>
       </div>
@@ -67,7 +69,7 @@ export default function AlertsPage({ currentUser, selectedCity, reports = [], nl
               setScreen(item.id)
             }}
           >
-            <span>{item.icon}</span>
+            <span className="nav-icon"><Icon name={item.icon} size={20} /></span>
             <small>{item.label}</small>
           </button>
         ))}

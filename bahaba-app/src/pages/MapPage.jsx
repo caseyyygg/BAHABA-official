@@ -1,6 +1,7 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import mapGeometry from '../assets/targeted-barangay-geometry.json'
 import { locationById } from '../locations'
+import { Icon } from '../components/Icon'
 
 const MAP_WIDTH = 1000
 const MAP_HEIGHT = 680
@@ -119,6 +120,9 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
   const [viewBox, setViewBox] = useState({ x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT })
   const [focusedFeatureId, setFocusedFeatureId] = useState(null)
   const dragStart = useRef(null)
+  const mapSvgRef = useRef(null)
+  const activePointers = useRef(new Map())
+  const pinchStart = useRef(null)
   const visibleFeatures = features
   const coordinates = visibleFeatures.flatMap(coordinatesForFeature)
   const bounds = coordinates.reduce((current, [longitude, latitude]) => ({
@@ -180,24 +184,109 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
   const zoomAt = (pointX, pointY, factor) => {
     setViewBox((current) => {
       const width = Math.min(MAP_WIDTH, Math.max(MAP_WIDTH / 24, current.width * factor))
-      const height = MAP_HEIGHT * width / MAP_WIDTH
-      const centerX = current.x + pointX / MAP_WIDTH * current.width
-      const centerY = current.y + pointY / MAP_HEIGHT * current.height
+      const height = current.height * width / current.width
+      const centerX = pointX
+      const centerY = pointY
 
       return {
-        x: Math.min(MAP_WIDTH - width, Math.max(0, centerX - pointX / MAP_WIDTH * width)),
-        y: Math.min(MAP_HEIGHT - height, Math.max(0, centerY - pointY / MAP_HEIGHT * height)),
+        x: Math.min(MAP_WIDTH - width, Math.max(0, centerX - (pointX - current.x) / current.width * width)),
+        y: Math.min(MAP_HEIGHT - height, Math.max(0, centerY - (pointY - current.y) / current.height * height)),
         width,
         height,
       }
     })
   }
 
+  const mapPointFromClient = (clientX, clientY, currentViewBox) => {
+    const svg = mapSvgRef.current
+    if (!svg) {
+      return {
+        x: currentViewBox.x + currentViewBox.width / 2,
+        y: currentViewBox.y + currentViewBox.height / 2,
+      }
+    }
+
+    const rect = svg.getBoundingClientRect()
+    const scale = Math.max(rect.width / currentViewBox.width, rect.height / currentViewBox.height)
+    const visibleWidth = rect.width / scale
+    const visibleHeight = rect.height / scale
+    return {
+      x: currentViewBox.x + (currentViewBox.width - visibleWidth) / 2 + (clientX - rect.left) / scale,
+      y: currentViewBox.y + (currentViewBox.height - visibleHeight) / 2 + (clientY - rect.top) / scale,
+    }
+  }
+
+  const beginPointerInteraction = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+    if (activePointers.current.size >= 2) {
+      const [first, second] = [...activePointers.current.values()]
+      const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
+      pinchStart.current = {
+        distance: Math.hypot(second.x - first.x, second.y - first.y),
+        viewBox,
+        anchor: mapPointFromClient(midpoint.x, midpoint.y, viewBox),
+      }
+      dragStart.current = null
+      return
+    }
+
+    dragStart.current = { viewBox, clientX: event.clientX, clientY: event.clientY }
+  }
+
+  const movePointerInteraction = (event) => {
+    if (!activePointers.current.has(event.pointerId)) return
+    activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+    if (activePointers.current.size >= 2 && pinchStart.current) {
+      const [first, second] = [...activePointers.current.values()]
+      const distance = Math.hypot(second.x - first.x, second.y - first.y)
+      if (!distance || !pinchStart.current.distance) return
+      const factor = pinchStart.current.distance / distance
+      const start = pinchStart.current.viewBox
+      const width = Math.min(MAP_WIDTH, Math.max(MAP_WIDTH / 24, start.width * factor))
+      const height = start.height * width / start.width
+      const { anchor } = pinchStart.current
+      const x = anchor.x - (anchor.x - start.x) / start.width * width
+      const y = anchor.y - (anchor.y - start.y) / start.height * height
+      setViewBox({
+        x: Math.min(MAP_WIDTH - width, Math.max(0, x)),
+        y: Math.min(MAP_HEIGHT - height, Math.max(0, y)),
+        width,
+        height,
+      })
+      return
+    }
+
+    handlePointerMove(event)
+  }
+
+  const endPointerInteraction = (event) => {
+    activePointers.current.delete(event.pointerId)
+    pinchStart.current = null
+
+    const remainingPointer = activePointers.current.values().next().value
+    if (remainingPointer) {
+      dragStart.current = {
+        viewBox,
+        clientX: remainingPointer.x,
+        clientY: remainingPointer.y,
+      }
+    } else {
+      dragStart.current = null
+    }
+  }
+
   const handleWheel = (event) => {
     event.preventDefault()
     const rect = event.currentTarget.getBoundingClientRect()
-    const pointX = (event.clientX - rect.left) / rect.width * MAP_WIDTH
-    const pointY = (event.clientY - rect.top) / rect.height * MAP_HEIGHT
+    const scale = Math.max(rect.width / viewBox.width, rect.height / viewBox.height)
+    const visibleWidth = rect.width / scale
+    const visibleHeight = rect.height / scale
+    const pointX = viewBox.x + (viewBox.width - visibleWidth) / 2 + (event.clientX - rect.left) / scale
+    const pointY = viewBox.y + (viewBox.height - visibleHeight) / 2 + (event.clientY - rect.top) / scale
     zoomAt(pointX, pointY, event.deltaY < 0 ? 0.85 : 1.18)
   }
 
@@ -205,8 +294,9 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
     if (!dragStart.current) return
     const { viewBox: start, clientX, clientY } = dragStart.current
     const rect = event.currentTarget.getBoundingClientRect()
-    const x = start.x + (clientX - event.clientX) * start.width / rect.width
-    const y = start.y + (clientY - event.clientY) * start.height / rect.height
+    const scale = Math.max(rect.width / start.width, rect.height / start.height)
+    const x = start.x + (clientX - event.clientX) / scale
+    const y = start.y + (clientY - event.clientY) / scale
 
     setViewBox({
       ...start,
@@ -218,19 +308,17 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
   return (
     <div className="geojson-map-frame">
       <svg
+        ref={mapSvgRef}
         className="geojson-map"
+        preserveAspectRatio="xMidYMid slice"
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
         role="img"
         aria-label={`${areaName} barangay boundary map`}
         onWheel={handleWheel}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return
-          event.currentTarget.setPointerCapture(event.pointerId)
-          dragStart.current = { viewBox, clientX: event.clientX, clientY: event.clientY }
-        }}
-        onPointerMove={handlePointerMove}
-        onPointerUp={() => { dragStart.current = null }}
-        onPointerCancel={() => { dragStart.current = null }}
+        onPointerDown={beginPointerInteraction}
+        onPointerMove={movePointerInteraction}
+        onPointerUp={endPointerInteraction}
+        onPointerCancel={endPointerInteraction}
       >
         <rect className="geojson-map-water" width={MAP_WIDTH} height={MAP_HEIGHT} />
         <g className="geojson-map-boundaries">
@@ -298,11 +386,6 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
           )
         })()}
       </svg>
-      <div className="map-zoom-controls" role="group" aria-label={`${areaName} map zoom controls`}>
-        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(MAP_WIDTH / 2, MAP_HEIGHT / 2, 0.8)}>+</button>
-        <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(MAP_WIDTH / 2, MAP_HEIGHT / 2, 1.25)}>−</button>
-        <button type="button" className="map-zoom-reset" aria-label="Reset zoom" title="Reset zoom" onClick={() => setViewBox({ x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT })}>Reset</button>
-      </div>
     </div>
   )
 })
@@ -320,6 +403,10 @@ export default function MapPage({
   setScreen,
 }) {
   const mapRefs = useRef({})
+  const searchPullStart = useRef(null)
+  const suppressHandleClick = useRef(false)
+  const [searchExpanded, setSearchExpanded] = useState(Boolean(searchTerm.trim()))
+  const [resolvedQuery, setResolvedQuery] = useState('')
   const location = locationById(selectedLocationId)
   const mapFeatures = location
     ? mapGeometry.features.filter((feature) => feature.properties.city === location.map_city
@@ -327,17 +414,44 @@ export default function MapPage({
     : []
   const mapAreas = location ? [{ name: location.name, features: mapFeatures }] : []
   const query = searchTerm.trim().toLowerCase()
-  const searchResults = query
+  const searchLoading = Boolean(query && query !== resolvedQuery)
+  const searchResults = resolvedQuery
     ? mapFeatures.filter((feature) => [
       feature.properties.name,
       feature.properties.city,
       feature.properties.municipality,
-    ].some((value) => value.toLowerCase().includes(query))).slice(0, 8)
+    ].some((value) => value.toLowerCase().includes(resolvedQuery))).slice(0, 8)
     : []
+
+  useEffect(() => {
+    if (!query) {
+      setResolvedQuery('')
+      return undefined
+    }
+
+    const timer = window.setTimeout(() => setResolvedQuery(query), 180)
+    return () => window.clearTimeout(timer)
+  }, [query])
 
   const focusBarangay = (city, featureId) => {
     mapRefs.current[city]?.focusFeature(featureId)
     document.getElementById(`map-${city.toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const handleSearchPullStart = (event) => {
+    searchPullStart.current = event.clientY
+    suppressHandleClick.current = false
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleSearchPullEnd = (event) => {
+    if (searchPullStart.current === null) return
+    const dragDistance = event.clientY - searchPullStart.current
+    searchPullStart.current = null
+    if (Math.abs(dragDistance) > 14) {
+      suppressHandleClick.current = true
+      setSearchExpanded(dragDistance > 0)
+    }
   }
 
   return (
@@ -351,46 +465,88 @@ export default function MapPage({
         </div>
       </div>
 
-      <div className="top-search-bar">
-        <div className="search-input-wrap">
-          <span className="search-icon">⌕</span>
-          <input
-            type="text"
-            placeholder="Search location"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <button className="chip chip-light">List</button>
-        <button className="chip chip-blue">Map</button>
-      </div>
-
-      {query && searchResults.length > 0 && (
-        <div className="search-dropdown">
-          {searchResults.map((feature) => (
-            <button
-              key={feature.id}
-              type="button"
-              className="search-option"
-              onClick={() => {
-                setSearchTerm(feature.properties.name)
-                setSelectedBarangays((current) =>
-                  current.includes(feature.properties.name)
-                    ? current
-                    : [...current, feature.properties.name],
-                )
-                setSearchTerm('')
-                focusBarangay(feature.properties.city, feature.id)
+      <section className={`search-dock ${searchExpanded ? 'expanded' : ''}`}>
+        <button
+          type="button"
+          className="search-dock-handle"
+          aria-label={searchExpanded ? 'Collapse location search' : 'Expand location search'}
+          aria-expanded={searchExpanded}
+          onClick={() => {
+            if (suppressHandleClick.current) {
+              suppressHandleClick.current = false
+              return
+            }
+            setSearchExpanded((expanded) => !expanded)
+          }}
+          onPointerDown={handleSearchPullStart}
+          onPointerUp={handleSearchPullEnd}
+          onPointerCancel={() => { searchPullStart.current = null }}
+        >
+          <span />
+        </button>
+        <div className="top-search-bar">
+          <div className="search-input-wrap">
+            <Icon className="search-icon" name="search" size={17} />
+            <input
+              type="text"
+              placeholder="Search location"
+              value={searchTerm}
+              onFocus={() => setSearchExpanded(true)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value)
+                setSearchExpanded(true)
               }}
-            >
-              <div className="search-option-main">
-                <span>{feature.properties.name}</span>
-                <small>{[feature.properties.municipality, feature.properties.city].filter(Boolean).join(', ')}</small>
-              </div>
-            </button>
-          ))}
+            />
+          </div>
+          <div className="search-view-actions">
+            <button className="chip chip-light" type="button">List</button>
+            <button className="chip chip-blue" type="button">Map</button>
+          </div>
         </div>
-      )}
+
+        <div className="search-dock-content" aria-hidden={!searchExpanded}>
+          <div className="search-dropdown">
+            {searchLoading && (
+              <div className="search-skeleton-list" aria-label="Searching locations" aria-busy="true">
+                {Array.from({ length: 5 }, (_, index) => (
+                  <div className="search-skeleton" key={index}>
+                    <span />
+                    <span />
+                  </div>
+                ))}
+              </div>
+            )}
+            {query && !searchLoading && searchResults.map((feature, index) => (
+              <button
+                key={feature.id}
+                type="button"
+                className="search-option"
+                style={{ '--result-index': index }}
+                tabIndex={searchExpanded ? 0 : -1}
+                onClick={() => {
+                  setSearchTerm('')
+                  setSearchExpanded(false)
+                  setSelectedBarangays((current) =>
+                    current.includes(feature.properties.name)
+                      ? current
+                      : [...current, feature.properties.name],
+                  )
+                  focusBarangay(feature.properties.city, feature.id)
+                }}
+              >
+                <div className="search-option-main">
+                  <span>{feature.properties.name}</span>
+                  <small>{[feature.properties.municipality, feature.properties.city].filter(Boolean).join(', ')}</small>
+                </div>
+              </button>
+            ))}
+            {query && !searchLoading && searchResults.length === 0 && (
+              <p className="search-empty" tabIndex={searchExpanded ? 0 : -1}>No locations found for “{searchTerm.trim()}”.</p>
+            )}
+            {!query && <p className="search-empty" tabIndex={searchExpanded ? 0 : -1}>Search a barangay or city to find it on the map.</p>}
+          </div>
+        </div>
+      </section>
 
       <div className="map-scroll-area">
         <div className="map-area-list">
@@ -439,7 +595,7 @@ export default function MapPage({
               setScreen(item.id)
             }}
           >
-            <span>{item.icon}</span>
+            <span className="nav-icon"><Icon name={item.icon} size={20} /></span>
             <small>{item.label}</small>
           </button>
         ))}

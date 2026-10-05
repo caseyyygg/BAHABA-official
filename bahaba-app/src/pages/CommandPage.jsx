@@ -1,11 +1,13 @@
-export default function CommandPage({ selectedCity, reports = [], nlpEvents = [], announcements = [], commandCenter, navigation, activeNav, setActiveNav, setScreen }) {
+import { BrandMark, Icon } from '../components/Icon'
+
+export default function CommandPage({ selectedCity, reports = [], nlpEvents = [], announcements = [], commandCenter, evacuationCenters = [], navigation, activeNav, setActiveNav, setScreen }) {
   const locationReports = [...reports, ...nlpEvents]
   return (
     <div className="phone-screen command-screen">
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
-          <span className="signal"><i /></span>
+          <span className="signal"><i /><i /><i /><i /></span>
           <span className="wifi" />
           <span className="battery" />
         </div>
@@ -13,7 +15,7 @@ export default function CommandPage({ selectedCity, reports = [], nlpEvents = []
 
       <div className="top-banner command-banner">
         <div className="logo-inline">
-          <span className="mini-mark" />
+          <BrandMark />
           <span>Command Center</span>
         </div>
       </div>
@@ -50,6 +52,39 @@ export default function CommandPage({ selectedCity, reports = [], nlpEvents = []
         {announcements.length > 0 && <p>{announcements.length} published local advisories.</p>}
       </div>
 
+      <div className="stats-panel compact-panel evacuation-centers-panel">
+        <h3>Evacuation centers · {evacuationCenters.length}</h3>
+        <p>Centers shared by your local LGU.</p>
+        <div className="alert-list small-list">
+          {evacuationCenters.map((center) => {
+            const capacity = Number(center.capacity) || 0
+            const evacuees = Number(center.evacuees) || 0
+            const occupancy = capacity > 0 ? Math.min(100, Math.round((evacuees / capacity) * 100)) : 0
+            return (
+              <div key={center.id} className="evacuation-center-row">
+                <div className="evacuation-center-heading">
+                  <strong>{center.name}</strong>
+                  <span>{center.barangay}{center.city ? `, ${center.city}` : ''}</span>
+                </div>
+                {center.address && <span className="evacuation-center-address">{center.address}</span>}
+                <div className="evacuation-capacity" aria-label={`${occupancy}% occupied`}>
+                  <span style={{ width: `${occupancy}%` }} />
+                </div>
+                <div className="evacuation-center-meta">
+                  <span>{evacuees.toLocaleString()} / {capacity.toLocaleString()} spaces filled</span>
+                  {center.created_by && <span>Shared by {center.created_by}</span>}
+                </div>
+              </div>
+            )
+          })}
+          {!evacuationCenters.length && (
+            <div className="alert-row">
+              <span>No evacuation centers have been shared for {selectedCity || 'your location'} yet.</span>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="bottom-nav">
         {navigation.map((item) => (
           <button
@@ -61,7 +96,7 @@ export default function CommandPage({ selectedCity, reports = [], nlpEvents = []
               setScreen(item.id)
             }}
           >
-            <span>{item.icon}</span>
+            <span className="nav-icon"><Icon name={item.icon} size={20} /></span>
             <small>{item.label}</small>
           </button>
         ))}

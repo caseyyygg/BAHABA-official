@@ -13,7 +13,7 @@ export default function SelectionPage({
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
-          <span className="signal"><i /></span>
+          <span className="signal"><i /><i /><i /><i /></span>
           <span className="wifi" />
           <span className="battery" />
         </div>
@@ -28,7 +28,13 @@ export default function SelectionPage({
 
       <div className={`selection-list ${gridMode ? 'city-grid' : ''}`}>
         <div className="list-title">{gridMode ? 'Cities / Municipalities' : 'Luzon Regions'}</div>
-        {loading && <div className="selection-loading">Loading locations...</div>}
+        {loading && (
+          <div className="selection-skeleton-list" aria-label="Loading locations" aria-busy="true">
+            {Array.from({ length: gridMode ? 8 : 6 }, (_, index) => (
+              <div className="selection-skeleton" key={index}><span /></div>
+            ))}
+          </div>
+        )}
         {!loading && items.map((item) => {
           const value = typeof item === 'string' ? item : item.name
           return (

@@ -1,10 +1,12 @@
+import { BrandMark } from '../components/Icon'
+
 export default function SplashPage({ onGetStarted, onLogin }) {
   return (
     <div className="phone-screen splash-screen">
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
-          <span className="signal"><i /></span>
+          <span className="signal"><i /><i /><i /><i /></span>
           <span className="wifi" />
           <span className="battery" />
         </div>
@@ -12,7 +14,7 @@ export default function SplashPage({ onGetStarted, onLogin }) {
 
       <div className="splash-content">
         <div className="splash-brand">
-          <div className="brand-mark" />
+          <BrandMark className="brand-mark" />
           <h1>BAHABA</h1>
           <p>Stay Safe, Stay Alert</p>
         </div>

@@ -1,14 +1,32 @@
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 async function request(endpoint, options = {}) {
-  const response = await fetch(`${API_URL}/${endpoint}`, {
-    ...options,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-  })
-  const payload = await response.json().catch(() => ({}))
+  let response
+  try {
+    response = await fetch(`${API_URL}/${endpoint}`, {
+      ...options,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+    })
+  } catch {
+    throw new Error('Cannot reach the BAHABA API. Make sure the PHP API server is running and VITE_API_URL is configured correctly.')
+  }
+
+  const responseText = await response.text()
+  let payload = {}
+  try {
+    payload = JSON.parse(responseText)
+  } catch {
+    if (response.ok) {
+      throw new Error('The BAHABA API returned an invalid response. Check the API server logs.')
+    }
+  }
+
   if (!response.ok) {
-    const error = new Error(payload.error || 'Something went wrong.')
+    const error = new Error(
+      payload.error
+      || `The BAHABA API returned HTTP ${response.status}. Check that the PHP API server is running and review its logs.`,
+    )
     error.needsVerification = payload.needsVerification
     throw error
   }

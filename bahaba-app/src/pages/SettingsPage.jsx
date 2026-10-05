@@ -1,10 +1,12 @@
+import { Icon } from '../components/Icon'
+
 export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, supportedLocations, onDesiredLocationChange, locationChangeBusy, locationChangeStatus }) {
   return (
     <div className="phone-screen settings-screen">
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
-          <span className="signal"><i /></span>
+          <span className="signal"><i /><i /><i /><i /></span>
           <span className="wifi" />
           <span className="battery" />
         </div>
@@ -110,7 +112,7 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
               setScreen(item.id)
             }}
           >
-            <span>{item.icon}</span>
+            <span className="nav-icon"><Icon name={item.icon} size={20} /></span>
             <small>{item.label}</small>
           </button>
         ))}

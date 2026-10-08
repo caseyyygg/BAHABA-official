@@ -4,15 +4,18 @@
 
 Authentication uses the PHP API in `api/` and MySQL. Signup accepts only `@gmail.com` addresses, hashes passwords on the server, and sends a 24-hour activation link through Gmail SMTP.
 
-1. Install MySQL/MariaDB and import `api/schema.sql`.
-2. Edit `api/config.php`: set the database password and Gmail SMTP values. For Gmail, use a Google **App Password**, not your normal Gmail password.
-3. Install the mail dependency from `bahaba-app` with `composer install --working-dir=api`.
+1. Install and start MySQL/MariaDB, then import `api/schema.sql` into your database (for example, use MySQL Workbench or phpMyAdmin).
+2. Install PHP with the PDO MySQL extension. Copy `api/config.example.php` to `api/config.php` and set its database credentials.
+3. From `bahaba-app`, run `php api/seed-test-accounts.php`. It creates or updates 10 verified regular-user accounts, hashes their shared test password, and assigns their configured locations. This is for local testing only; do not run it against a production database.
 4. Start the PHP API from `bahaba-app` with `php -S localhost:8000`.
 5. In a second terminal, start the React app with `npm run dev`.
 
 The default frontend/API URLs are `http://localhost:5173` and `http://localhost:8000/api`. Change `VITE_API_URL` if the API runs elsewhere.
 
 Do not commit `api/config.php`; it is already ignored because it contains SMTP credentials.
+
+The schema includes `admin_users` because the regular login API checks it to distinguish reserved admin addresses. The supplied LGU test accounts are regular app accounts, not admin-role accounts.
+Install the mail dependency with `composer install --working-dir=api` only if you also want to use signup and email verification.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

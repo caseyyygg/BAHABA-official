@@ -7,21 +7,37 @@ import MapPage from './pages/MapPage'
 import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
-import { checkVerification, getLocationData, getProfile, login, logout, resendVerification, signup, updateProfile } from './api'
+import {
+  checkVerification,
+  getLocationData,
+  getProfile,
+  login,
+  logout,
+  resendVerification,
+  signup,
+  updateProfile,
+} from './api'
 import { locationById, supportedLocations } from './locations'
 
 const getPlaceName = async ({ latitude, longitude }) => {
   const response = await fetch(
     `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`,
   )
-  if (!response.ok) throw new Error('Could not look up your address. Please enter it manually.')
+  if (!response.ok) {
+    throw new Error('Could not look up your address. Please enter it manually.')
+  }
 
   const place = await response.json()
   const area = place.locality || place.city || place.principalSubdivision
-  if (!area) throw new Error('Could not identify your current area. Please enter your address manually.')
+  if (!area) {
+    throw new Error('Could not identify your current area. Please enter your address manually.')
+  }
 
-  const neighborhood = place.localityInfo?.administrative?.find((item) =>
-    ['suburb', 'neighbourhood', 'borough'].includes(item.description?.toLowerCase()),
+  const neighborhood = place.localityInfo?.administrative?.find(
+    (item) =>
+      ['suburb', 'neighbourhood', 'borough'].includes(
+        item.description?.toLowerCase(),
+      ),
   )?.name
 
   return neighborhood ? `${neighborhood}, ${area}` : area
@@ -88,10 +104,26 @@ const regionCodes = {
 }
 
 const navigation = [
-  { id: 'alerts', label: 'Alerts', icon: 'alerts' },
-  { id: 'map', label: 'Map', icon: 'map' },
-  { id: 'command', label: 'Command', icon: 'command' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
+  {
+    id: 'alerts',
+    label: 'Alerts',
+    icon: 'alerts',
+  },
+  {
+    id: 'map',
+    label: 'Map',
+    icon: 'map',
+  },
+  {
+    id: 'command',
+    label: 'Command Center',
+    icon: 'command',
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: 'settings',
+  },
 ]
 
 const emptySignup = {
@@ -105,10 +137,18 @@ const emptySignup = {
 function App() {
   const [screen, setScreen] = useState('splash')
   const [signupForm, setSignupForm] = useState(emptySignup)
-  const [loginForm, setLoginForm] = useState({ email: '', password: '' })
-  const [selectedRegion, setSelectedRegion] = useState('National Capital Region — Metro Manila')
+  const [loginForm, setLoginForm] = useState({
+    email: '',
+    password: '',
+  })
+  const [selectedRegion, setSelectedRegion] = useState(
+    'National Capital Region — Metro Manila',
+  )
   const [selectedCity, setSelectedCity] = useState('Malabon')
-  const [selectedBarangays, setSelectedBarangays] = useState(['Concepcion', 'Bayan-bayanan'])
+  const [selectedBarangays, setSelectedBarangays] = useState([
+    'Concepcion',
+    'Bayan-bayanan',
+  ])
   const [availableCities, setAvailableCities] = useState(fallbackCities)
   const [availableBarangays, setAvailableBarangays] = useState(fallbackBarangays)
   const [locationDataLoading, setLocationDataLoading] = useState(false)
@@ -123,8 +163,15 @@ function App() {
   const [locationStatus, setLocationStatus] = useState('')
   const [notificationStatus, setNotificationStatus] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
-  const [locationData, setLocationData] = useState({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
+  const [locationData, setLocationData] = useState({
+    reports: [],
+    nlp_events: [],
+    announcements: [],
+    command_center: null,
+    evacuation_centers: [],
+  })
   const [locationChangeStatus, setLocationChangeStatus] = useState('')
+  const [locationRefreshing, setLocationRefreshing] = useState(false)
   const [locationChangeBusy, setLocationChangeBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
@@ -137,16 +184,28 @@ function App() {
     // Check for saved session on app load
     const savedUser = localStorage.getItem('bahaba_app_user')
     const sessionExpiry = localStorage.getItem('bahaba_app_session_expiry')
-    
-    if (savedUser && sessionExpiry && new Date().getTime() < parseInt(sessionExpiry)) {
-      getProfile().then(({ user }) => {
-        setCurrentUser(user)
-        setSelectedRegion(user.region || 'National Capital Region — Metro Manila')
-        setSelectedCity(locationById(user.selected_location)?.city || user.city || '')
-        setSelectedBarangays(Array.isArray(user.barangays) ? user.barangays : [])
-        setScreen(user.selected_location ? 'map' : 'settings')
-        saveUserSession(user)
-      }).catch(() => clearUserSession())
+
+    if (
+      savedUser &&
+      sessionExpiry &&
+      new Date().getTime() < parseInt(sessionExpiry)
+    ) {
+      getProfile()
+        .then(({ user }) => {
+          setCurrentUser(user)
+          setSelectedRegion(
+            user.region || 'National Capital Region — Metro Manila',
+          )
+          setSelectedCity(
+            locationById(user.selected_location)?.city || user.city || '',
+          )
+          setSelectedBarangays(
+            Array.isArray(user.barangays) ? user.barangays : [],
+          )
+          setScreen(user.selected_location ? 'map' : 'settings')
+          saveUserSession(user)
+        })
+        .catch(() => clearUserSession())
     } else {
       localStorage.removeItem('bahaba_app_user')
       localStorage.removeItem('bahaba_app_session_expiry')
@@ -161,19 +220,34 @@ function App() {
 
   useEffect(() => {
     if (!currentUser?.selected_location) {
-      setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
+      setLocationData({
+        reports: [],
+        nlp_events: [],
+        announcements: [],
+        command_center: null,
+        evacuation_centers: [],
+      })
       return undefined
     }
 
     let cancelled = false
-    const refreshLocationData = () => getLocationData().then((data) => {
-      if (!cancelled) setLocationData(data)
-    }).catch((error) => {
-      if (!cancelled) {
-        setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
-        console.warn('Could not load location data:', error.message)
-      }
-    })
+    const refreshLocationData = () =>
+      getLocationData()
+        .then((data) => {
+          if (!cancelled) setLocationData(data)
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setLocationData({
+              reports: [],
+              nlp_events: [],
+              announcements: [],
+              command_center: null,
+              evacuation_centers: [],
+            })
+            console.warn('Could not load location data:', error.message)
+          }
+        })
     refreshLocationData()
     const refreshTimer = window.setInterval(refreshLocationData, 30000)
     return () => {
@@ -182,13 +256,36 @@ function App() {
     }
   }, [currentUser?.id, currentUser?.selected_location])
 
+  // Keep the bottom-nav highlight in sync with whichever tab screen is showing
+  useEffect(() => {
+    if (navigation.some((item) => item.id === screen)) {
+      setActiveNav(screen)
+    }
+  }, [screen])
+
+  // Manual refresh for the Alerts page (the 30s auto-refresh above is unchanged)
+  const handleRefreshLocationData = async () => {
+    if (!currentUser?.selected_location || locationRefreshing) return
+    setLocationRefreshing(true)
+    try {
+      setLocationData(await getLocationData())
+    } catch (error) {
+      console.warn('Could not refresh location data:', error.message)
+    } finally {
+      setLocationRefreshing(false)
+    }
+  }
+
   // Save user to localStorage when they log in
   const saveUserSession = (user) => {
     try {
       localStorage.setItem('bahaba_app_user', JSON.stringify(user))
       const expiryDate = new Date()
       expiryDate.setDate(expiryDate.getDate() + 30) // 30 days
-      localStorage.setItem('bahaba_app_session_expiry', expiryDate.getTime().toString())
+      localStorage.setItem(
+        'bahaba_app_session_expiry',
+        expiryDate.getTime().toString(),
+      )
     } catch (e) {
       console.warn('Failed to save session:', e)
     }
@@ -216,9 +313,15 @@ function App() {
       const response = await fetch(url)
       if (!response.ok) throw new Error('Location data unavailable')
       const data = await response.json()
-      return data.map((item) => ({ name: item.name, code: item.code }))
+      return data.map((item) => ({
+        name: item.name,
+        code: item.code,
+      }))
     } catch {
-      return fallback.map((name) => ({ name, code: name }))
+      return fallback.map((name) => ({
+        name,
+        code: name,
+      }))
     }
   }
 
@@ -257,14 +360,20 @@ function App() {
   }
 
   const handleSignupChange = (field, value) => {
-    setSignupForm((current) => ({ ...current, [field]: value }))
+    setSignupForm((current) => ({
+      ...current,
+      [field]: value,
+    }))
     if (field === 'location') setSignupLocationNotice(null)
   }
 
   const handleUseSignupLocation = async () => {
     setSignupLocationNotice(null)
     if (!navigator.geolocation) {
-      setSignupLocationNotice({ type: 'error', text: 'Location is not available in this browser. You can enter your address manually.' })
+      setSignupLocationNotice({
+        type: 'error',
+        text: 'Location is not available in this browser. You can enter your address manually.',
+      })
       return
     }
 
@@ -279,16 +388,24 @@ function App() {
       })
       const placeName = await getPlaceName(position.coords)
       handleSignupChange('location', placeName)
-      setSignupLocationNotice({ type: 'success', text: `Location added: ${placeName}` })
+      setSignupLocationNotice({
+        type: 'success',
+        text: `Location added: ${placeName}`,
+      })
     } catch (error) {
-      const message = error.code === 1
-        ? 'Location permission was not granted. You can enter your address manually.'
-        : error.code === 2
-          ? 'Your location could not be determined. You can enter your address manually.'
-          : error.code === 3
-            ? 'Location request timed out. Try again or enter your address manually.'
-            : error.message || 'Could not get your location. You can enter your address manually.'
-      setSignupLocationNotice({ type: 'error', text: message })
+      const message =
+        error.code === 1
+          ? 'Location permission was not granted. You can enter your address manually.'
+          : error.code === 2
+            ? 'Your location could not be determined. You can enter your address manually.'
+            : error.code === 3
+              ? 'Location request timed out. Try again or enter your address manually.'
+              : error.message ||
+                'Could not get your location. You can enter your address manually.'
+      setSignupLocationNotice({
+        type: 'error',
+        text: message,
+      })
     } finally {
       setSignupLocationBusy(false)
     }
@@ -300,7 +417,9 @@ function App() {
     const username = String(signupForm?.username ?? '').trim()
     const password = String(signupForm?.password ?? '')
     if (!locationById(signupForm.selected_location)) {
-      setAuthError('Choose one of the supported locations before creating your account.')
+      setAuthError(
+        'Choose one of the supported locations before creating your account.',
+      )
       return
     }
 
@@ -314,7 +433,10 @@ function App() {
     }
     setAuthBusy(true)
     try {
-      await signup({ ...signupForm, selected_location: signupForm.selected_location })
+      await signup({
+        ...signupForm,
+        selected_location: signupForm.selected_location,
+      })
       setSignupForm(emptySignup)
       setScreen('verify')
     } catch (error) {
@@ -326,9 +448,13 @@ function App() {
 
   const saveCreatedAccount = async () => {
     setAuthError('')
-    const safeBarangays = Array.isArray(selectedBarangays) ? selectedBarangays : []
+    const safeBarangays = Array.isArray(selectedBarangays)
+      ? selectedBarangays
+      : []
     if (!selectedCity || safeBarangays.length === 0) {
-      setAuthError('Select a city and at least one barangay before creating your account.')
+      setAuthError(
+        'Select a city and at least one barangay before creating your account.',
+      )
       return
     }
     setAuthBusy(true)
@@ -354,11 +480,17 @@ function App() {
     setAuthBusy(true)
     try {
       const result = await login(loginForm)
-      const userBarangays = Array.isArray(result?.user?.barangays) ? result.user.barangays : []
+      const userBarangays = Array.isArray(result?.user?.barangays)
+        ? result.user.barangays
+        : []
       setCurrentUser(result.user)
       saveUserSession(result.user)
       setSelectedRegion(result.user.region || selectedRegion)
-      setSelectedCity(locationById(result.user.selected_location)?.city || result.user.city || '')
+      setSelectedCity(
+        locationById(result.user.selected_location)?.city ||
+          result.user.city ||
+          '',
+      )
       setSelectedBarangays(userBarangays)
       setScreen(result.user.selected_location ? 'map' : 'settings')
     } catch (error) {
@@ -377,7 +509,11 @@ function App() {
       setCurrentUser(result.user)
       saveUserSession(result.user)
       setSelectedRegion(result.user.region || selectedRegion)
-      setSelectedCity(locationById(result.user.selected_location)?.city || result.user.city || '')
+      setSelectedCity(
+        locationById(result.user.selected_location)?.city ||
+          result.user.city ||
+          '',
+      )
       setSelectedBarangays(result.user.barangays || [])
       setScreen(result.user.selected_location ? 'map' : 'settings')
     } catch (error) {
@@ -404,10 +540,16 @@ function App() {
   const handleLogout = async () => {
     setCurrentUser(null)
     clearUserSession()
-    setLoginForm({ email: '', password: '' })
+    setLoginForm({
+      email: '',
+      password: '',
+    })
     setScreen('splash')
     logout().catch((error) => {
-      console.warn('Could not end the server session during logout:', error.message)
+      console.warn(
+        'Could not end the server session during logout:',
+        error.message,
+      )
     })
   }
 
@@ -415,7 +557,9 @@ function App() {
     setLocationChangeStatus('')
     setLocationChangeBusy(true)
     try {
-      const result = await updateProfile({ selected_location: selectedLocation })
+      const result = await updateProfile({
+        selected_location: selectedLocation,
+      })
       setCurrentUser(result.user)
       saveUserSession(result.user)
       setSelectedRegion(result.user.region)
@@ -451,7 +595,10 @@ function App() {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         setLocationSharingEnabled(true)
-        setCurrentLocation({ latitude: coords.latitude, longitude: coords.longitude })
+        setCurrentLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        })
         setCurrentPlace('Finding your place...')
         setLocationStatus('Finding your current place...')
         getPlaceName(coords)
@@ -461,7 +608,9 @@ function App() {
           })
           .catch(() => {
             setCurrentPlace('Place unavailable')
-            setLocationStatus('Location is active, but the place name could not be found.')
+            setLocationStatus(
+              'Location is active, but the place name could not be found.',
+            )
           })
       },
       () => {
@@ -469,7 +618,11 @@ function App() {
         setCurrentLocation(null)
         setLocationStatus('Location permission was not granted.')
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      },
     )
   }
 
@@ -481,7 +634,9 @@ function App() {
     }
 
     if (!('Notification' in window)) {
-      setNotificationStatus('Notifications are not available in this browser.')
+      setNotificationStatus(
+        'Notifications are not available in this browser.',
+      )
       return
     }
 
@@ -489,25 +644,36 @@ function App() {
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') {
         setPushNotificationsEnabled(false)
-        setNotificationStatus('Notification permission was not granted. Allow it in browser settings, then try again.')
+        setNotificationStatus(
+          'Notification permission was not granted. Allow it in browser settings, then try again.',
+        )
         return
       }
 
       setPushNotificationsEnabled(true)
       setNotificationStatus('Push notifications are enabled.')
       if (floodAlertsEnabled) {
-        new Notification('BAHABA alerts enabled', { body: 'You will receive flood alert notifications here.' })
+        new Notification('BAHABA alerts enabled', {
+          body: 'You will receive flood alert notifications here.',
+        })
       }
     } catch {
       setPushNotificationsEnabled(false)
-      setNotificationStatus('Notifications are blocked for this site. Allow them in browser settings, then try again.')
+      setNotificationStatus(
+        'Notifications are blocked for this site. Allow them in browser settings, then try again.',
+      )
     }
   }
 
   const renderScreen = () => {
     switch (screen) {
       case 'splash':
-        return <SplashPage onGetStarted={() => setScreen('signup')} onLogin={() => setScreen('login')} />
+        return (
+          <SplashPage
+            onGetStarted={() => setScreen('signup')}
+            onLogin={() => setScreen('login')}
+          />
+        )
 
       case 'signup':
         return (
@@ -520,7 +686,12 @@ function App() {
             signupLocationNotice={signupLocationNotice}
             loginForm={loginForm}
             onSignupFieldChange={handleSignupChange}
-            onLoginFieldChange={(field, value) => setLoginForm((current) => ({ ...current, [field]: value }))}
+            onLoginFieldChange={(field, value) =>
+              setLoginForm((current) => ({
+                ...current,
+                [field]: value,
+              }))
+            }
             onSignupNext={continueSignup}
             onLoginSubmit={handleLogin}
             onSwitchMode={(nextMode) => setScreen(nextMode)}
@@ -536,7 +707,12 @@ function App() {
             signupForm={signupForm}
             loginForm={loginForm}
             onSignupFieldChange={handleSignupChange}
-            onLoginFieldChange={(field, value) => setLoginForm((current) => ({ ...current, [field]: value }))}
+            onLoginFieldChange={(field, value) =>
+              setLoginForm((current) => ({
+                ...current,
+                [field]: value,
+              }))
+            }
             onSignupNext={continueSignup}
             onLoginSubmit={handleLogin}
             onSwitchMode={(nextMode) => setScreen(nextMode)}
@@ -546,7 +722,21 @@ function App() {
         )
 
       case 'verify':
-        return <AuthPage mode="verify" onVerify={handleVerificationCheck} onResendVerification={handleResendVerification} onSwitchMode={(nextMode) => { setAuthError(''); setAuthNotice(''); setScreen(nextMode) }} error={authError} notice={authNotice} busy={authBusy} />
+        return (
+          <AuthPage
+            mode="verify"
+            onVerify={handleVerificationCheck}
+            onResendVerification={handleResendVerification}
+            onSwitchMode={(nextMode) => {
+              setAuthError('')
+              setAuthNotice('')
+              setScreen(nextMode)
+            }}
+            error={authError}
+            notice={authNotice}
+            busy={authBusy}
+          />
+        )
 
       case 'region':
         return (
@@ -580,7 +770,12 @@ function App() {
             <div className="statusbar">
               <span>9:47</span>
               <div className="status-icons">
-                <span className="signal"><i /><i /><i /><i /></span>
+                <span className="signal">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
                 <span className="wifi" />
                 <span className="battery" />
               </div>
@@ -588,37 +783,66 @@ function App() {
 
             <div className="header-panel dark">
               <div>Select Barangay</div>
-              <small>Pick your barangay in {selectedCity} for precise alerts.</small>
+              <small>
+                Pick your barangay in {selectedCity} for precise alerts.
+              </small>
             </div>
 
-            <button className="back-link" type="button" onClick={() => setScreen('city')}>← Back</button>
+            <button
+              className="back-link"
+              type="button"
+              onClick={() => setScreen('city')}
+            >
+              ← Back
+            </button>
 
-            <div className="selection-list city-grid" aria-busy={locationDataLoading}>
+            <div
+              className="selection-list city-grid"
+              aria-busy={locationDataLoading}
+            >
               <div className="list-title">Barangays</div>
               {locationDataLoading && (
-                <div className="selection-skeleton-list" aria-label="Loading barangays">
+                <div
+                  className="selection-skeleton-list"
+                  aria-label="Loading barangays"
+                >
                   {Array.from({ length: 8 }, (_, index) => (
-                    <div className="selection-skeleton" key={index}><span /></div>
+                    <div className="selection-skeleton" key={index}>
+                      <span />
+                    </div>
                   ))}
                 </div>
               )}
-              {!locationDataLoading && availableBarangays.map((barangay) => (
-                <button
-                  key={barangay}
-                  type="button"
-                  className={`option-row ${selectedBarangays.includes(barangay) ? 'selected' : ''}`}
-                  onClick={() => toggleBarangay(barangay)}
-                >
-                  {barangay}
-                </button>
-              ))}
+              {!locationDataLoading &&
+                availableBarangays.map((barangay) => (
+                  <button
+                    key={barangay}
+                    type="button"
+                    className={`option-row ${
+                      selectedBarangays.includes(barangay) ? 'selected' : ''
+                    }`}
+                    onClick={() => toggleBarangay(barangay)}
+                  >
+                    {barangay}
+                  </button>
+                ))}
             </div>
 
             <div className="bottom-actions">
-              <button className="primary-button" onClick={saveCreatedAccount} disabled={authBusy || locationDataLoading}>
-                {locationDataLoading ? 'LOADING BARANGAYS...' : authBusy ? 'CREATING ACCOUNT...' : 'Create Account'}
+              <button
+                className="primary-button"
+                onClick={saveCreatedAccount}
+                disabled={authBusy || locationDataLoading}
+              >
+                {locationDataLoading
+                  ? 'LOADING BARANGAYS...'
+                  : authBusy
+                    ? 'CREATING ACCOUNT...'
+                    : 'Create Account'}
               </button>
-              {authError && <p className="auth-error selection-error">{authError}</p>}
+              {authError && (
+                <p className="auth-error selection-error">{authError}</p>
+              )}
             </div>
           </div>
         )
@@ -653,6 +877,8 @@ function App() {
             activeNav={activeNav}
             setActiveNav={setActiveNav}
             setScreen={setScreen}
+            onRefresh={handleRefreshLocationData}
+            refreshing={locationRefreshing}
           />
         )
 

@@ -7,6 +7,40 @@ const MAP_WIDTH = 1000
 const MAP_HEIGHT = 680
 const MAP_PADDING = 150
 
+function MapGlyph({ name, size = 18 }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2.2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true,
+  }
+
+  switch (name) {
+    case 'plus':
+      return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>
+    case 'minus':
+      return <svg {...common}><path d="M5 12h14" /></svg>
+    case 'recenter':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="3.2" />
+          <path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4" />
+        </svg>
+      )
+    case 'list':
+      return <svg {...common}><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" /></svg>
+    case 'chevron':
+      return <svg {...common}><path d="m6 15 6-6 6 6" /></svg>
+    default:
+      return null
+  }
+}
+
 const coordinatesForFeature = (feature) => {
   const polygons = feature.geometry.type === 'Polygon'
     ? [feature.geometry.coordinates]
@@ -124,6 +158,7 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
   const activePointers = useRef(new Map())
   const pinchStart = useRef(null)
   const visibleFeatures = features
+  const waterGradientId = `geo-water-${String(areaName).replace(/[^a-zA-Z0-9]+/g, '-')}`
   const coordinates = visibleFeatures.flatMap(coordinatesForFeature)
   const bounds = coordinates.reduce((current, [longitude, latitude]) => ({
     minLongitude: Math.min(current.minLongitude, longitude),
@@ -320,7 +355,13 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
         onPointerUp={endPointerInteraction}
         onPointerCancel={endPointerInteraction}
       >
-        <rect className="geojson-map-water" width={MAP_WIDTH} height={MAP_HEIGHT} />
+        <defs>
+          <linearGradient id={waterGradientId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" style={{ stopColor: 'var(--map-water-a)' }} />
+            <stop offset="1" style={{ stopColor: 'var(--map-water-b)' }} />
+          </linearGradient>
+        </defs>
+        <rect className="geojson-map-water" width={MAP_WIDTH} height={MAP_HEIGHT} style={{ fill: `url(#${waterGradientId})` }} />
         <g className="geojson-map-boundaries">
           {visibleFeatures.map((feature) => (
             <path
@@ -386,6 +427,33 @@ const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
           )
         })()}
       </svg>
+      <div className="map-zoom-controls" role="group" aria-label="Map controls">
+        <button
+          type="button"
+          aria-label="Zoom in"
+          onClick={() => zoomAt(viewBox.x + viewBox.width / 2, viewBox.y + viewBox.height / 2, 0.7)}
+        >
+          <MapGlyph name="plus" />
+        </button>
+        <button
+          type="button"
+          aria-label="Zoom out"
+          onClick={() => zoomAt(viewBox.x + viewBox.width / 2, viewBox.y + viewBox.height / 2, 1.4)}
+        >
+          <MapGlyph name="minus" />
+        </button>
+        <button
+          type="button"
+          className="map-zoom-reset"
+          aria-label="Re-center map"
+          onClick={() => {
+            setFocusedFeatureId(null)
+            setViewBox({ x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT })
+          }}
+        >
+          <MapGlyph name="recenter" />
+        </button>
+      </div>
     </div>
   )
 })
@@ -490,6 +558,7 @@ export default function MapPage({
             <input
               type="text"
               placeholder="Search location"
+              aria-label="Search location"
               value={searchTerm}
               onFocus={() => setSearchExpanded(true)}
               onChange={(e) => {
@@ -499,8 +568,8 @@ export default function MapPage({
             />
           </div>
           <div className="search-view-actions">
-            <button className="chip chip-light" type="button">List</button>
-            <button className="chip chip-blue" type="button">Map</button>
+            <button className="chip chip-light" type="button" aria-pressed="false">List</button>
+            <button className="chip chip-blue" type="button" aria-pressed="true">Map</button>
           </div>
         </div>
 
@@ -555,7 +624,13 @@ export default function MapPage({
               <header className="map-area-heading">
                 <div>
                   <h2>{area.name}</h2>
-                  <p>{area.features.length} barangays · {reports.length + nlpEvents.length} local flood reports</p>
+                  <p>
+                    <span>{area.features.length} barangays</span>
+                    <i aria-hidden="true" />
+                    <span className={`map-reports ${reports.length + nlpEvents.length ? 'warn' : 'ok'}`}>
+                      {reports.length + nlpEvents.length} local flood reports
+                    </span>
+                  </p>
                 </div>
               </header>
               {area.features.length > 0 && (
@@ -566,11 +641,16 @@ export default function MapPage({
                 />
               )}
               <details className="barangay-disclosure">
-                <summary>View all {area.features.length} barangays</summary>
+                <summary>
+                  <span className="tray-icon"><MapGlyph name="list" size={16} /></span>
+                  <span className="tray-text">View all {area.features.length} barangays</span>
+                  <span className="tray-chevron"><MapGlyph name="chevron" size={16} /></span>
+                </summary>
                 <ul>
                   {area.features.map((feature) => (
                     <li key={feature.id}>
                       <button type="button" className="barangay-focus-button" onClick={() => focusBarangay(area.name, feature.id)}>
+                        <i className={`risk-dot ${feature.properties.risk || 'unrated'}`} aria-hidden="true" />
                         <span>{feature.properties.name}</span>
                         {feature.properties.municipality && <small>{feature.properties.municipality}</small>}
                       </button>
@@ -584,12 +664,13 @@ export default function MapPage({
         {!mapFeatures.length && <p className="empty-state">No map boundaries are available for this location.</p>}
       </div>
 
-      <div className="bottom-nav">
+      <nav className="bottom-nav" aria-label="Primary">
         {navigation.map((item) => (
           <button
             key={item.id}
             type="button"
             className={activeNav === item.id ? 'nav-item active' : 'nav-item'}
+            aria-current={activeNav === item.id ? 'page' : undefined}
             onClick={() => {
               setActiveNav(item.id)
               setScreen(item.id)
@@ -599,7 +680,7 @@ export default function MapPage({
             <small>{item.label}</small>
           </button>
         ))}
-      </div>
+      </nav>
     </div>
   )
 }

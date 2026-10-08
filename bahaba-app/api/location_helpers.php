@@ -104,6 +104,16 @@ function bahaba_backfill_location_ids(PDO $pdo, string $table, string $cityColum
 
 function bahaba_ensure_location_schema(PDO $pdo): void
 {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(254) NOT NULL UNIQUE,
+        username VARCHAR(50) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        city VARCHAR(100) NULL,
+        assigned_location VARCHAR(32) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
         version VARCHAR(100) PRIMARY KEY,
         applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

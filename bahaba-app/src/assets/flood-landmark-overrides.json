@@ -1,0 +1,12 @@
+[
+  {
+    "id": "osm-way-308188924",
+    "name": "Anilao Barangay Hall",
+    "city": "Malolos City",
+    "barangay": "Anilao",
+    "aliases": ["anilao barangay hall", "anilao brgy hall", "barangay hall ng anilao"],
+    "contextAliases": ["barangay hall", "brgy hall", "brgy. hall"],
+    "coordinates": [120.79808555, 14.841551375],
+    "source": "https://www.openstreetmap.org/way/308188924"
+  }
+]

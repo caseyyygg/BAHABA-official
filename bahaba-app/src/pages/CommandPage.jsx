@@ -112,7 +112,8 @@ export default function CommandPage({ selectedCity, reports = [], nlpEvents = []
   ].filter((entry) => entry.value)
 
   const hasCommandDetails = Boolean(
-    contactEntries.length
+    commandCenter?.name
+    || contactEntries.length
     || commandCenter?.address
     || commandCenter?.emergency_contact
     || commandCenter?.other_information,
@@ -203,10 +204,10 @@ export default function CommandPage({ selectedCity, reports = [], nlpEvents = []
           )}
 
           {commandCenter?.emergency_contact && (
-            <div className="cc-note"><span className="cc-pill-ic amber"><Glyph name="bell" /></span><p>{commandCenter.emergency_contact}</p></div>
+            <div className="cc-note"><span className="cc-pill-ic amber"><Glyph name="bell" /></span><div><strong>Emergency contact information</strong><p style={{ whiteSpace: 'pre-wrap' }}>{commandCenter.emergency_contact}</p></div></div>
           )}
           {commandCenter?.other_information && (
-            <div className="cc-note"><span className="cc-pill-ic blue"><Glyph name="info" /></span><p>{commandCenter.other_information}</p></div>
+            <div className="cc-note"><span className="cc-pill-ic blue"><Glyph name="info" /></span><div><strong>Other information</strong><p style={{ whiteSpace: 'pre-wrap' }}>{commandCenter.other_information}</p></div></div>
           )}
         </section>
 

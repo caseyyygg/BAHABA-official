@@ -137,6 +137,12 @@ function bahaba_ensure_location_schema(PDO $pdo): void
         $markMigration->execute(['version' => 'location_registry_v1']);
     }
 
+    if (bahaba_table_exists($pdo, 'reports')) {
+        bahaba_ensure_column($pdo, 'reports', 'barangay_feature_id', 'VARCHAR(32) NULL');
+        bahaba_ensure_column($pdo, 'reports', 'latitude', 'DECIMAL(10,7) NULL');
+        bahaba_ensure_column($pdo, 'reports', 'longitude', 'DECIMAL(10,7) NULL');
+        bahaba_ensure_column($pdo, 'reports', 'street_name', 'VARCHAR(150) NULL');
+    }
     $tableMigrations = ['users' => ['city', 'selected_location']];
     foreach ([
         'admin_users' => ['city', 'assigned_location'],

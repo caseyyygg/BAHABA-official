@@ -1,0 +1,9 @@
+.flood-ping { width: 16px; height: 16px; pointer-events: none; }
+.flood-ping-ring { position: absolute; left: -24px; top: -24px; width: 64px; height: 64px; border: 2px solid var(--ping-color); border-radius: 50%; background: var(--ping-color); pointer-events: none; animation: flood-ping-expand 2s ease-out infinite; }
+@keyframes flood-ping-expand {
+  from { transform: scale(.3); opacity: .45; }
+  to { transform: scale(1.2); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flood-ping-ring { animation: none; transform: scale(.7); opacity: .18; }
+}

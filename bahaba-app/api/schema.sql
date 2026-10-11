@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS reports (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   city VARCHAR(100) NOT NULL,
   barangay VARCHAR(100) NOT NULL,
+  barangay_feature_id VARCHAR(32) NULL,
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL,
+  street_name VARCHAR(150) NULL,
   severity ENUM('low', 'medium', 'high') NOT NULL DEFAULT 'medium',
   reporter VARCHAR(150) NOT NULL,
   source VARCHAR(50) NOT NULL DEFAULT 'citizen',
@@ -71,3 +75,17 @@ CREATE TABLE IF NOT EXISTS command_centers (
   other_information TEXT NOT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS report_monthly_summary (
+  bucket_key CHAR(64) PRIMARY KEY,
+  report_month DATE NOT NULL,
+  location_id VARCHAR(32) NOT NULL,
+  city VARCHAR(100) NOT NULL,
+  barangay VARCHAR(100) NOT NULL,
+  severity VARCHAR(16) NOT NULL,
+  status VARCHAR(24) NOT NULL,
+  source VARCHAR(50) NOT NULL,
+  report_count BIGINT UNSIGNED NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_summary_location_month (location_id, report_month)
+) ENGINE=InnoDB;

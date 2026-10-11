@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BAHABA notification check</title>
+<style>
+body{font:16px system-ui;background:#101d2c;color:#eef5ff;max-width:640px;margin:40px auto;padding:20px}button{font:inherit;padding:12px 18px;border:0;border-radius:8px;background:#3b82f6;color:white;cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#20334b;padding:16px;border-radius:8px;line-height:1.6}a{color:#93c5fd}
+</style>
+<h1>Notification check</h1>
+<p>Click Send test, allow notifications if asked, then switch to another window. Results stay here.</p>
+<button id="test">Send test</button>
+<pre id="result" role="status" aria-live="polite"></pre>
+<p>A successful browser request does not confirm a Windows banner appeared. If the browser accepts it but you see nothing, check Windows Settings → System → Notifications, including your browser’s banners, and turn Do Not Disturb off.</p>
+<p><a href="/">Back to BAHABA</a></p>
+<script type="module">
+import { notificationRegistration, showBahabaNotification, withNotificationTimeout as bounded } from './notification-client.js'
+const output = document.getElementById('result')
+const button = document.getElementById('test')
+const log = (message) => { output.textContent += message + '\n' }
+function environment(){
+  log('Address: ' + location.origin)
+  log('Secure connection: ' + window.isSecureContext)
+  log('Notifications supported: ' + ('Notification' in window))
+  log('Service workers supported: ' + ('serviceWorker' in navigator))
+  if ('Notification' in window) log('Permission: ' + Notification.permission)
+}
+environment()
+button.addEventListener('click', async () => {
+  output.textContent = ''; environment(); button.disabled = true
+  try {
+    if(!window.isSecureContext) throw Error('Open this test through http://localhost:5173 or HTTPS.')
+    if(!('Notification' in window) || !('serviceWorker' in navigator)) throw Error('This browser does not support the required notification APIs.')
+    const permission = await bounded(Notification.requestPermission(),'Permission request')
+    log('Permission result: ' + permission)
+    if(permission !== 'granted') throw Error('Notifications are not allowed. Change Notifications to Allow in this site’s browser settings.')
+    log('Registering worker...')
+    const registration = await notificationRegistration()
+    log('Worker state: ' + registration.active?.state)
+    log('Sending notification...')
+    await showBahabaNotification('BAHABA notification test',{
+      body:'If you can see this, browser notifications are working.',
+      tag:'bahaba-check-'+Date.now(), requireInteraction:true, silent:false,
+    },registration)
+    log('SUCCESS: Browser accepted the notification request.')
+    const notifications = await bounded(registration.getNotifications(),'Reading active notifications')
+    log('Active notifications reported by browser: '+notifications.length)
+    log('If there is no banner, check Win + N and Windows notification settings. Copy these results back to the chat.')
+  } catch(error) { log('ERROR: '+error.name+': '+error.message) }
+  finally { button.disabled = false }
+})
+</script>
+</html>

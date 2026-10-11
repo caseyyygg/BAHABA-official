@@ -1,6 +1,7 @@
 <?php
 
 require __DIR__ . '/bootstrap.php';
+header('Cache-Control: no-store, private');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     respond(['error' => 'Method not allowed.'], 405);
@@ -17,7 +18,7 @@ if (!$locationId) {
 }
 
 $reportsStatement = $pdo->prepare(
-    'SELECT id, city, barangay, severity, description, status, photo, created_at
+    'SELECT id, city, barangay, barangay_feature_id, latitude, longitude, street_name, severity, description, status, photo, created_at
      FROM reports WHERE location_id = :location_id ORDER BY created_at DESC, id DESC LIMIT 100'
 );
 $reportsStatement->execute(['location_id' => $locationId]);
@@ -42,9 +43,11 @@ $evacuationCentersStatement->execute(['location_id' => $locationId]);
 $nlpEvents = [];
 if (bahaba_table_exists($pdo, 'nlp_events')) {
     $nlpStatement = $pdo->prepare(
-        "SELECT id, post_text AS description, severity, city, barangay, detected_at AS created_at
+        "SELECT id, post_text AS description, severity, city, barangay, detected_at AS created_at,
+                (UNIX_TIMESTAMP(received_at) + 86400) * 1000 AS expires_at_ms
          FROM nlp_events WHERE location_id = :location_id AND classification = 'Flood'
-         ORDER BY detected_at DESC, id DESC LIMIT 100"
+           AND received_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+         ORDER BY received_at DESC, id DESC LIMIT 100"
     );
     $nlpStatement->execute(['location_id' => $locationId]);
     $nlpEvents = $nlpStatement->fetchAll();

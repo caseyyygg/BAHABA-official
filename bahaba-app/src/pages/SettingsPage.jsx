@@ -1,6 +1,28 @@
 import { Icon } from '../components/Icon'
+import { useState } from 'react'
 
-export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, supportedLocations, onDesiredLocationChange, locationChangeBusy, locationChangeStatus }) {
+export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, supportedLocations, onDesiredLocationChange, locationChangeBusy, locationChangeStatus, onSaveProfile }) {
+  const [name, setName] = useState(currentUser?.username || '')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [profileStatus, setProfileStatus] = useState('')
+  const saveProfile = async (event) => {
+    event.preventDefault()
+    if (saving) return
+    setProfileStatus('')
+    if (password && password !== confirmation) { setProfileStatus('New passwords do not match.'); return }
+    const changes = { username: name.trim() }
+    if (password) { changes.password = password; changes.current_password = currentPassword }
+    setSaving(true)
+    try {
+      await onSaveProfile(changes)
+      setCurrentPassword(''); setPassword(''); setConfirmation('')
+      setProfileStatus('Your changes have been saved.')
+    } catch (error) { setProfileStatus(error.message) }
+    finally { setSaving(false) }
+  }
   return (
     <div className="phone-screen settings-screen">
       <div className="statusbar">
@@ -55,6 +77,8 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
               className={`switch ${floodAlertsEnabled ? 'on' : ''}`}
               onClick={() => setFloodAlertsEnabled((current) => !current)}
               aria-label="Toggle flood alerts"
+              role="switch"
+              aria-checked={floodAlertsEnabled}
             />
           </div>
           <div className="settings-row">
@@ -64,6 +88,8 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
               className={`switch ${locationSharingEnabled ? 'on' : ''}`}
               onClick={() => onLocationToggle(!locationSharingEnabled)}
               aria-label="Toggle location sharing"
+              role="switch"
+              aria-checked={locationSharingEnabled}
             />
           </div>
           <div className="settings-row">
@@ -73,6 +99,8 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
               className={`switch ${pushNotificationsEnabled ? 'on' : ''}`}
               onClick={() => onNotificationsToggle(!pushNotificationsEnabled)}
               aria-label="Toggle push notifications"
+              role="switch"
+              aria-checked={pushNotificationsEnabled}
             />
           </div>
           <div className="settings-row">
@@ -82,24 +110,39 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
               className={`switch ${darkMode ? 'on' : ''}`}
               onClick={() => setDarkMode((current) => !current)}
               aria-label="Toggle dark mode"
+              role="switch"
+              aria-checked={darkMode}
             />
           </div>
         </div>
 
         {(locationStatus || notificationStatus) && (
-          <div className="settings-status">
+          <div className="settings-status" role="status" aria-live="polite">
             {locationStatus && <p>{locationStatus}</p>}
             {notificationStatus && <p>{notificationStatus}</p>}
           </div>
         )}
 
-        <div className="settings-form">
-          <input type="text" value={currentUser?.username || 'John Doe'} readOnly />
-          <input type="email" value={currentUser?.email || 'johndoe@gmail.com'} readOnly />
-          <input type="password" value={currentUser?.password || '**********'} readOnly />
-        </div>
-
-        <button className="primary-button muted-button" onClick={() => setScreen('map')}>Save Changes</button>
+        <form className="settings-profile-form" onSubmit={saveProfile}>
+          <fieldset className="settings-form settings-profile-fields" disabled={saving}>
+            <legend>Account information</legend>
+            <label htmlFor="profile-name">Name</label>
+            <input id="profile-name" type="text" autoComplete="nickname" value={name} onChange={(event) => setName(event.target.value)} minLength={3} maxLength={50} required />
+            <label htmlFor="profile-email">Email</label>
+            <input id="profile-email" type="email" value={currentUser?.email || ''} readOnly />
+            <small>Email cannot be changed.</small>
+            <label htmlFor="profile-new-password">New password</label>
+            <input id="profile-new-password" type="password" autoComplete="new-password" placeholder="Leave blank to keep your password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} />
+            {password && <>
+              <label htmlFor="profile-current-password">Current password</label>
+              <input id="profile-current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+              <label htmlFor="profile-confirm-password">Confirm new password</label>
+              <input id="profile-confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={8} required />
+            </>}
+          </fieldset>
+          {profileStatus && <p className="settings-status" role="status">{profileStatus}</p>}
+          <button className="primary-button settings-save-button" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+        </form>
         <button className="logout-button" type="button" onClick={onLogout}>Log out</button>
       </div>
 

@@ -161,6 +161,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .app-shell .nav-item.active { color: #fff; background: rgba(59,140,255,.22); border-color: rgba(111,176,255,.35); box-shadow: none; }
 .app-shell .nav-item.active .nav-icon { color: #fff; transform: none; }
 .app-shell .nav-item.active::after { display: none; }
+.app-shell .phone-screen .bottom-nav .nav-item .nav-icon {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.app-shell .phone-screen .bottom-nav .nav-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  fill: none;
+  stroke: currentColor;
+}
 @media (max-width: 380px) { .app-shell .nav-item small { font-size: 9.5px; } }
 
 /* ===== Map screen ===== */

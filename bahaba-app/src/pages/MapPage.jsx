@@ -1,462 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import mapGeometry from '../assets/targeted-barangay-geometry.json'
+import lguBoundaries from '../assets/lgu-boundaries.json'
 import { locationById } from '../locations'
 import { Icon } from '../components/Icon'
-
-const MAP_WIDTH = 1000
-const MAP_HEIGHT = 680
-const MAP_PADDING = 150
-
-function MapGlyph({ name, size = 18 }) {
-  const common = {
-    width: size,
-    height: size,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 2.2,
-    strokeLinecap: 'round',
-    strokeLinejoin: 'round',
-    'aria-hidden': true,
-  }
-
-  switch (name) {
-    case 'plus':
-      return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>
-    case 'minus':
-      return <svg {...common}><path d="M5 12h14" /></svg>
-    case 'recenter':
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="3.2" />
-          <path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4" />
-        </svg>
-      )
-    case 'list':
-      return <svg {...common}><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" /></svg>
-    case 'chevron':
-      return <svg {...common}><path d="m6 15 6-6 6 6" /></svg>
-    default:
-      return null
-  }
-}
-
-const coordinatesForFeature = (feature) => {
-  const polygons = feature.geometry.type === 'Polygon'
-    ? [feature.geometry.coordinates]
-    : feature.geometry.coordinates
-
-  return polygons.flatMap((polygon) => polygon.flat())
-}
-
-const projectFeature = (feature, projectCoordinate) => {
-  const polygons = feature.geometry.type === 'Polygon'
-    ? [feature.geometry.coordinates]
-    : feature.geometry.coordinates
-  const path = polygons.flatMap((polygon) => polygon.map((ring) => {
-    const projected = ring.map(projectCoordinate)
-    return `${projected.map(({ x, y }, index) => `${index === 0 ? 'M' : 'L'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ')} Z`
-  })).join(' ')
-
-  return path
-}
-
-const labelAnchorCache = new WeakMap()
-
-const pointInRing = (point, ring) => {
-  let inside = false
-
-  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
-    const currentPoint = ring[index]
-    const previousPoint = ring[previous]
-    const crossesRay = (currentPoint.y > point.y) !== (previousPoint.y > point.y)
-      && point.x < ((previousPoint.x - currentPoint.x) * (point.y - currentPoint.y))
-        / (previousPoint.y - currentPoint.y) + currentPoint.x
-    if (crossesRay) inside = !inside
-  }
-
-  return inside
-}
-
-const distanceToSegment = (point, start, end) => {
-  const deltaX = end.x - start.x
-  const deltaY = end.y - start.y
-  const lengthSquared = deltaX * deltaX + deltaY * deltaY
-  const fraction = lengthSquared
-    ? Math.max(0, Math.min(1, ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared))
-    : 0
-  return Math.hypot(point.x - start.x - fraction * deltaX, point.y - start.y - fraction * deltaY)
-}
-
-const bestInteriorPoint = (rings) => {
-  const outerRing = rings[0]
-  const bounds = outerRing.reduce((current, point) => ({
-    minX: Math.min(current.minX, point.x),
-    maxX: Math.max(current.maxX, point.x),
-    minY: Math.min(current.minY, point.y),
-    maxY: Math.max(current.maxY, point.y),
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity })
-  const candidates = []
-  const vertexCount = Math.max(0, outerRing.length - 1)
-
-  if (vertexCount) {
-    const average = outerRing.slice(0, vertexCount).reduce((sum, point) => ({
-      x: sum.x + point.x / vertexCount,
-      y: sum.y + point.y / vertexCount,
-    }), { x: 0, y: 0 })
-    candidates.push(average)
-  }
-
-  for (let row = 1; row < 12; row += 1) {
-    for (let column = 1; column < 12; column += 1) {
-      candidates.push({
-        x: bounds.minX + (bounds.maxX - bounds.minX) * column / 12,
-        y: bounds.minY + (bounds.maxY - bounds.minY) * row / 12,
-      })
-    }
-  }
-
-  let best = null
-  candidates.forEach((candidate) => {
-    if (!pointInRing(candidate, outerRing) || rings.slice(1).some((ring) => pointInRing(candidate, ring))) return
-
-    const clearance = rings.reduce((minimum, ring) => {
-      for (let index = 1; index < ring.length; index += 1) {
-        minimum = Math.min(minimum, distanceToSegment(candidate, ring[index - 1], ring[index]))
-      }
-      return minimum
-    }, Infinity)
-
-    if (!best || clearance > best.clearance) best = { ...candidate, clearance }
-  })
-
-  return best
-}
-
-const labelAnchorFor = (feature, areaName, projectCoordinate) => {
-  let areaAnchors = labelAnchorCache.get(feature)
-  if (!areaAnchors) {
-    areaAnchors = new Map()
-    labelAnchorCache.set(feature, areaAnchors)
-  }
-  if (areaAnchors.has(areaName)) return areaAnchors.get(areaName)
-
-  const polygons = feature.geometry.type === 'Polygon'
-    ? [feature.geometry.coordinates]
-    : feature.geometry.coordinates
-  const anchors = polygons.map((polygon) => bestInteriorPoint(polygon.map((ring) => ring.map(projectCoordinate))))
-  const anchor = anchors.filter(Boolean).sort((left, right) => right.clearance - left.clearance)[0] || null
-  areaAnchors.set(areaName, anchor)
-  return anchor
-}
-
-const GeoJSONMap = forwardRef(function GeoJSONMap({ features, areaName }, ref) {
-  const [viewBox, setViewBox] = useState({ x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT })
-  const [focusedFeatureId, setFocusedFeatureId] = useState(null)
-  const dragStart = useRef(null)
-  const mapSvgRef = useRef(null)
-  const activePointers = useRef(new Map())
-  const pinchStart = useRef(null)
-  const visibleFeatures = features
-  const waterGradientId = `geo-water-${String(areaName).replace(/[^a-zA-Z0-9]+/g, '-')}`
-  const coordinates = visibleFeatures.flatMap(coordinatesForFeature)
-  const bounds = coordinates.reduce((current, [longitude, latitude]) => ({
-    minLongitude: Math.min(current.minLongitude, longitude),
-    maxLongitude: Math.max(current.maxLongitude, longitude),
-    minLatitude: Math.min(current.minLatitude, latitude),
-    maxLatitude: Math.max(current.maxLatitude, latitude),
-  }), {
-    minLongitude: Infinity,
-    maxLongitude: -Infinity,
-    minLatitude: Infinity,
-    maxLatitude: -Infinity,
-  })
-  const longitudeSpan = bounds.maxLongitude - bounds.minLongitude || 0.0001
-  const latitudeSpan = bounds.maxLatitude - bounds.minLatitude || 0.0001
-  const scale = Math.min(
-    (MAP_WIDTH - MAP_PADDING * 2) / longitudeSpan,
-    (MAP_HEIGHT - MAP_PADDING * 2) / latitudeSpan,
-  )
-  const offsetX = (MAP_WIDTH - longitudeSpan * scale) / 2
-  const offsetY = (MAP_HEIGHT - latitudeSpan * scale) / 2
-  const projectCoordinate = ([longitude, latitude]) => ({
-    x: offsetX + (longitude - bounds.minLongitude) * scale,
-    y: offsetY + (bounds.maxLatitude - latitude) * scale,
-  })
-  const projectedPointsFor = (feature) => coordinatesForFeature(feature).map(projectCoordinate)
-  const projectedBoundsFor = (feature) => projectedPointsFor(feature).reduce((current, point) => ({
-    minX: Math.min(current.minX, point.x),
-    maxX: Math.max(current.maxX, point.x),
-    minY: Math.min(current.minY, point.y),
-    maxY: Math.max(current.maxY, point.y),
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity })
-
-  const focusFeature = (featureId) => {
-    const feature = visibleFeatures.find((item) => item.id === featureId)
-    if (!feature) return
-
-    const featureBounds = projectedBoundsFor(feature)
-    const centerX = (featureBounds.minX + featureBounds.maxX) / 2
-    const centerY = (featureBounds.minY + featureBounds.maxY) / 2
-    const featureSpan = Math.max(
-      featureBounds.maxX - featureBounds.minX,
-      (featureBounds.maxY - featureBounds.minY) * MAP_WIDTH / MAP_HEIGHT,
-    )
-    const width = Math.min(MAP_WIDTH / 3, Math.max(MAP_WIDTH / 24, featureSpan * 3))
-    const height = MAP_HEIGHT * width / MAP_WIDTH
-
-    setFocusedFeatureId(featureId)
-    setViewBox({
-      x: Math.min(MAP_WIDTH - width, Math.max(0, centerX - width / 2)),
-      y: Math.min(MAP_HEIGHT - height, Math.max(0, centerY - height / 2)),
-      width,
-      height,
-    })
-  }
-
-  useImperativeHandle(ref, () => ({ focusFeature }))
-
-  const zoomAt = (pointX, pointY, factor) => {
-    setViewBox((current) => {
-      const width = Math.min(MAP_WIDTH, Math.max(MAP_WIDTH / 24, current.width * factor))
-      const height = current.height * width / current.width
-      const centerX = pointX
-      const centerY = pointY
-
-      return {
-        x: Math.min(MAP_WIDTH - width, Math.max(0, centerX - (pointX - current.x) / current.width * width)),
-        y: Math.min(MAP_HEIGHT - height, Math.max(0, centerY - (pointY - current.y) / current.height * height)),
-        width,
-        height,
-      }
-    })
-  }
-
-  const mapPointFromClient = (clientX, clientY, currentViewBox) => {
-    const svg = mapSvgRef.current
-    if (!svg) {
-      return {
-        x: currentViewBox.x + currentViewBox.width / 2,
-        y: currentViewBox.y + currentViewBox.height / 2,
-      }
-    }
-
-    const rect = svg.getBoundingClientRect()
-    const scale = Math.max(rect.width / currentViewBox.width, rect.height / currentViewBox.height)
-    const visibleWidth = rect.width / scale
-    const visibleHeight = rect.height / scale
-    return {
-      x: currentViewBox.x + (currentViewBox.width - visibleWidth) / 2 + (clientX - rect.left) / scale,
-      y: currentViewBox.y + (currentViewBox.height - visibleHeight) / 2 + (clientY - rect.top) / scale,
-    }
-  }
-
-  const beginPointerInteraction = (event) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    event.currentTarget.setPointerCapture(event.pointerId)
-    activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-
-    if (activePointers.current.size >= 2) {
-      const [first, second] = [...activePointers.current.values()]
-      const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
-      pinchStart.current = {
-        distance: Math.hypot(second.x - first.x, second.y - first.y),
-        viewBox,
-        anchor: mapPointFromClient(midpoint.x, midpoint.y, viewBox),
-      }
-      dragStart.current = null
-      return
-    }
-
-    dragStart.current = { viewBox, clientX: event.clientX, clientY: event.clientY }
-  }
-
-  const movePointerInteraction = (event) => {
-    if (!activePointers.current.has(event.pointerId)) return
-    activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-
-    if (activePointers.current.size >= 2 && pinchStart.current) {
-      const [first, second] = [...activePointers.current.values()]
-      const distance = Math.hypot(second.x - first.x, second.y - first.y)
-      if (!distance || !pinchStart.current.distance) return
-      const factor = pinchStart.current.distance / distance
-      const start = pinchStart.current.viewBox
-      const width = Math.min(MAP_WIDTH, Math.max(MAP_WIDTH / 24, start.width * factor))
-      const height = start.height * width / start.width
-      const { anchor } = pinchStart.current
-      const x = anchor.x - (anchor.x - start.x) / start.width * width
-      const y = anchor.y - (anchor.y - start.y) / start.height * height
-      setViewBox({
-        x: Math.min(MAP_WIDTH - width, Math.max(0, x)),
-        y: Math.min(MAP_HEIGHT - height, Math.max(0, y)),
-        width,
-        height,
-      })
-      return
-    }
-
-    handlePointerMove(event)
-  }
-
-  const endPointerInteraction = (event) => {
-    activePointers.current.delete(event.pointerId)
-    pinchStart.current = null
-
-    const remainingPointer = activePointers.current.values().next().value
-    if (remainingPointer) {
-      dragStart.current = {
-        viewBox,
-        clientX: remainingPointer.x,
-        clientY: remainingPointer.y,
-      }
-    } else {
-      dragStart.current = null
-    }
-  }
-
-  const handleWheel = (event) => {
-    event.preventDefault()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const scale = Math.max(rect.width / viewBox.width, rect.height / viewBox.height)
-    const visibleWidth = rect.width / scale
-    const visibleHeight = rect.height / scale
-    const pointX = viewBox.x + (viewBox.width - visibleWidth) / 2 + (event.clientX - rect.left) / scale
-    const pointY = viewBox.y + (viewBox.height - visibleHeight) / 2 + (event.clientY - rect.top) / scale
-    zoomAt(pointX, pointY, event.deltaY < 0 ? 0.85 : 1.18)
-  }
-
-  const handlePointerMove = (event) => {
-    if (!dragStart.current) return
-    const { viewBox: start, clientX, clientY } = dragStart.current
-    const rect = event.currentTarget.getBoundingClientRect()
-    const scale = Math.max(rect.width / start.width, rect.height / start.height)
-    const x = start.x + (clientX - event.clientX) / scale
-    const y = start.y + (clientY - event.clientY) / scale
-
-    setViewBox({
-      ...start,
-      x: Math.min(MAP_WIDTH - start.width, Math.max(0, x)),
-      y: Math.min(MAP_HEIGHT - start.height, Math.max(0, y)),
-    })
-  }
-
-  return (
-    <div className="geojson-map-frame">
-      <svg
-        ref={mapSvgRef}
-        className="geojson-map"
-        preserveAspectRatio="xMidYMid slice"
-        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-        role="img"
-        aria-label={`${areaName} barangay boundary map`}
-        onWheel={handleWheel}
-        onPointerDown={beginPointerInteraction}
-        onPointerMove={movePointerInteraction}
-        onPointerUp={endPointerInteraction}
-        onPointerCancel={endPointerInteraction}
-      >
-        <defs>
-          <linearGradient id={waterGradientId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" style={{ stopColor: 'var(--map-water-a)' }} />
-            <stop offset="1" style={{ stopColor: 'var(--map-water-b)' }} />
-          </linearGradient>
-        </defs>
-        <rect className="geojson-map-water" width={MAP_WIDTH} height={MAP_HEIGHT} style={{ fill: `url(#${waterGradientId})` }} />
-        <g className="geojson-map-boundaries">
-          {visibleFeatures.map((feature) => (
-            <path
-              key={feature.id}
-              d={projectFeature(feature, projectCoordinate)}
-              className={`geojson-area ${feature.properties.risk} ${focusedFeatureId === feature.id ? 'focused' : ''}`}
-            />
-          ))}
-        </g>
-        {viewBox.width <= MAP_WIDTH / 3 && (() => {
-          const fontSize = viewBox.height * 0.05
-          const candidates = visibleFeatures.map((feature) => {
-            const anchor = labelAnchorFor(feature, areaName, projectCoordinate)
-            if (!anchor || anchor.x < viewBox.x || anchor.x > viewBox.x + viewBox.width
-              || anchor.y < viewBox.y || anchor.y > viewBox.y + viewBox.height) return null
-
-            const width = Math.max(fontSize * 1.4, feature.properties.name.length * fontSize * 0.62)
-            const height = fontSize * 1.35
-            return {
-              feature,
-              anchor,
-              width,
-              height,
-              focused: focusedFeatureId === feature.id,
-            }
-          }).filter(Boolean).sort((left, right) => Number(right.focused) - Number(left.focused)
-            || right.anchor.clearance - left.anchor.clearance)
-          const placedLabels = []
-
-          candidates.forEach((candidate) => {
-            const { anchor, width, height } = candidate
-            const overlaps = placedLabels.some((placed) => Math.abs(anchor.x - placed.x) < (width + placed.width) / 2
-              && Math.abs(anchor.y - placed.y) < (height + placed.height) / 2)
-            if (!overlaps) placedLabels.push({ ...candidate, x: anchor.x, y: anchor.y })
-          })
-
-          return (
-            <g className="geojson-map-labels">
-              {placedLabels.map(({ feature, x, y, width }) => (
-                <text
-                  key={feature.id}
-                  className={`geojson-label ${focusedFeatureId === feature.id ? 'focused' : ''}`}
-                  x={x}
-                  y={y}
-                  fontSize={fontSize}
-                  textAnchor="middle"
-                  textLength={width}
-                  lengthAdjust="spacingAndGlyphs"
-                  role="button"
-                  tabIndex="0"
-                  onClick={() => focusFeature(feature.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      focusFeature(feature.id)
-                    }
-                  }}
-                >
-                  {feature.properties.name}
-                </text>
-              ))}
-            </g>
-          )
-        })()}
-      </svg>
-      <div className="map-zoom-controls" role="group" aria-label="Map controls">
-        <button
-          type="button"
-          aria-label="Zoom in"
-          onClick={() => zoomAt(viewBox.x + viewBox.width / 2, viewBox.y + viewBox.height / 2, 0.7)}
-        >
-          <MapGlyph name="plus" />
-        </button>
-        <button
-          type="button"
-          aria-label="Zoom out"
-          onClick={() => zoomAt(viewBox.x + viewBox.width / 2, viewBox.y + viewBox.height / 2, 1.4)}
-        >
-          <MapGlyph name="minus" />
-        </button>
-        <button
-          type="button"
-          className="map-zoom-reset"
-          aria-label="Re-center map"
-          onClick={() => {
-            setFocusedFeatureId(null)
-            setViewBox({ x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT })
-          }}
-        >
-          <MapGlyph name="recenter" />
-        </button>
-      </div>
-    </div>
-  )
-})
+import { FreeMap } from '../components/FreeMap'
+import { floodAreasFor } from '../floodMap'
 
 export default function MapPage({
   searchTerm,
@@ -470,18 +18,35 @@ export default function MapPage({
   setActiveNav,
   setScreen,
 }) {
-  const mapRefs = useRef({})
+  const mapRef = useRef(null)
+  const barangayListRef = useRef(null)
   const searchPullStart = useRef(null)
   const suppressHandleClick = useRef(false)
   const [searchExpanded, setSearchExpanded] = useState(Boolean(searchTerm.trim()))
   const [resolvedQuery, setResolvedQuery] = useState('')
+  const [mapTime, setMapTime] = useState(Date.now)
+  const [alertsExpanded, setAlertsExpanded] = useState(false)
+  const alertPull = useRef(null)
+  const alertDragged = useRef(false)
   const location = locationById(selectedLocationId)
-  const mapFeatures = location
+  const mapFeatures = useMemo(() => location
     ? mapGeometry.features.filter((feature) => feature.properties.city === location.map_city
       && (!location.map_municipality || feature.properties.municipality === location.map_municipality))
-    : []
-  const mapAreas = location ? [{ name: location.name, features: mapFeatures }] : []
+    : [], [location])
   const query = searchTerm.trim().toLowerCase()
+  const floodAreas = useMemo(() => floodAreasFor(mapFeatures, reports, nlpEvents, mapTime), [mapFeatures, reports, nlpEvents, mapTime])
+  useEffect(() => {
+    // Expire local markers even if data refreshes fail or the device goes offline.
+    const timer = window.setInterval(() => setMapTime(Date.now()), 30000)
+    const updateTime = () => setMapTime(Date.now())
+    window.addEventListener('focus', updateTime)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', updateTime)
+    }
+  }, [])
+  const sortedBarangays = useMemo(() => [...mapFeatures].sort((left, right) =>
+    left.properties.name.localeCompare(right.properties.name)), [mapFeatures])
   const searchLoading = Boolean(query && query !== resolvedQuery)
   const searchResults = resolvedQuery
     ? mapFeatures.filter((feature) => [
@@ -501,9 +66,13 @@ export default function MapPage({
     return () => window.clearTimeout(timer)
   }, [query])
 
-  const focusBarangay = (city, featureId) => {
-    mapRefs.current[city]?.focusFeature(featureId)
-    document.getElementById(`map-${city.toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const focusBarangay = (feature) => {
+    mapRef.current?.focusFeature(feature.id)
+    setSelectedBarangays((current) => current.includes(feature.properties.name)
+      ? current : [...current, feature.properties.name])
+    setSearchTerm('')
+    setSearchExpanded(false)
+    if (barangayListRef.current) barangayListRef.current.open = false
   }
 
   const handleSearchPullStart = (event) => {
@@ -524,6 +93,16 @@ export default function MapPage({
 
   return (
     <div className="phone-screen map-screen">
+      <div className="map-fullscreen-surface">
+        <FreeMap
+          key={selectedLocationId}
+          ref={mapRef}
+          features={mapFeatures}
+          scopeBoundary={lguBoundaries.features.find((feature) => feature.id === selectedLocationId)}
+          floodAreas={floodAreas}
+          areaName={location?.name || 'Philippines'}
+        />
+      </div>
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
@@ -568,7 +147,6 @@ export default function MapPage({
             />
           </div>
           <div className="search-view-actions">
-            <button className="chip chip-light" type="button" aria-pressed="false">List</button>
             <button className="chip chip-blue" type="button" aria-pressed="true">Map</button>
           </div>
         </div>
@@ -592,16 +170,7 @@ export default function MapPage({
                 className="search-option"
                 style={{ '--result-index': index }}
                 tabIndex={searchExpanded ? 0 : -1}
-                onClick={() => {
-                  setSearchTerm('')
-                  setSearchExpanded(false)
-                  setSelectedBarangays((current) =>
-                    current.includes(feature.properties.name)
-                      ? current
-                      : [...current, feature.properties.name],
-                  )
-                  focusBarangay(feature.properties.city, feature.id)
-                }}
+                onClick={() => focusBarangay(feature)}
               >
                 <div className="search-option-main">
                   <span>{feature.properties.name}</span>
@@ -617,52 +186,55 @@ export default function MapPage({
         </div>
       </section>
 
-      <div className="map-scroll-area">
-        <div className="map-area-list">
-          {mapAreas.map((area) => (
-            <section className="map-area-section" id={`map-${area.name.toLowerCase()}`} key={area.name}>
-              <header className="map-area-heading">
-                <div>
-                  <h2>{area.name}</h2>
-                  <p>
-                    <span>{area.features.length} barangays</span>
-                    <i aria-hidden="true" />
-                    <span className={`map-reports ${reports.length + nlpEvents.length ? 'warn' : 'ok'}`}>
-                      {reports.length + nlpEvents.length} local flood reports
-                    </span>
-                  </p>
-                </div>
-              </header>
-              {area.features.length > 0 && (
-                <GeoJSONMap
-                  ref={(map) => { mapRefs.current[area.name] = map }}
-                  features={area.features}
-                  areaName={area.name}
-                />
-              )}
-              <details className="barangay-disclosure">
-                <summary>
-                  <span className="tray-icon"><MapGlyph name="list" size={16} /></span>
-                  <span className="tray-text">View all {area.features.length} barangays</span>
-                  <span className="tray-chevron"><MapGlyph name="chevron" size={16} /></span>
-                </summary>
-                <ul>
-                  {area.features.map((feature) => (
-                    <li key={feature.id}>
-                      <button type="button" className="barangay-focus-button" onClick={() => focusBarangay(area.name, feature.id)}>
-                        <i className={`risk-dot ${feature.properties.risk || 'unrated'}`} aria-hidden="true" />
-                        <span>{feature.properties.name}</span>
-                        {feature.properties.municipality && <small>{feature.properties.municipality}</small>}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </section>
-          ))}
+      {(floodAreas.total > 0 || floodAreas.ignored > 0) && (
+        <div className={`map-flood-legend ${alertsExpanded ? 'is-expanded' : ''}`}>
+          <button type="button" className="alert-details-toggle" aria-expanded={alertsExpanded} aria-controls="map-alert-details"
+            onPointerDown={(event) => { alertPull.current = event.clientY; alertDragged.current = false; event.currentTarget.setPointerCapture(event.pointerId) }}
+            onPointerUp={(event) => {
+              if (alertPull.current !== null && Math.abs(event.clientY - alertPull.current) > 20) {
+                alertDragged.current = true
+                setAlertsExpanded(event.clientY > alertPull.current)
+              }
+              alertPull.current = null
+            }}
+            onPointerCancel={() => { alertPull.current = null }}
+            onClick={() => { if (!alertDragged.current) setAlertsExpanded((expanded) => !expanded); alertDragged.current = false }}>
+            <div><strong>{floodAreas.total} flood report{floodAreas.total === 1 ? '' : 's'}</strong><small>{alertsExpanded ? 'Pull up to hide details' : 'Pull down for alert details'}</small></div>
+            <span className="alert-details-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div id="map-alert-details" className="alert-details-collapse" aria-hidden={!alertsExpanded} inert={!alertsExpanded}>
+          <div className="alert-details-content">
+          <span><i className="flood-high" />High: {floodAreas.severityCounts.high} <i className="flood-medium" />Medium: {floodAreas.severityCounts.medium} <i className="flood-low" />Low: {floodAreas.severityCounts.low}</span>
+          {floodAreas.severityCounts.unknown > 0 && <small>Unspecified severity: {floodAreas.severityCounts.unknown}</small>}
+          <small>Tap a circle or reported area for details</small>
+          <small>Dots mark verified landmark locations mentioned in posts</small>
+          <small>Colored borders mark barangays mentioned in flood reports; exact flooded streets may be unknown.</small>
+          {floodAreas.ignored > 0 && <small>{floodAreas.ignored} post{floodAreas.ignored === 1 ? '' : 's'} skipped: no matched barangay or verified place</small>}
+          {floodAreas.unmatched > 0 && <small>{floodAreas.unmatched} report{floodAreas.unmatched === 1 ? '' : 's'} without a matched barangay</small>}
+          </div></div>
         </div>
-        {!mapFeatures.length && <p className="empty-state">No map boundaries are available for this location.</p>}
-      </div>
+      )}
+
+      {location && (
+        <details key={selectedLocationId} className="location-barangay-panel" ref={barangayListRef}>
+          <summary>
+            <span><strong>{location.name}</strong><small>View {sortedBarangays.length} barangays</small></span>
+            <span aria-hidden="true">⌃</span>
+          </summary>
+          <ul aria-label={`Barangays in ${location.name}`}>
+            {sortedBarangays.map((feature) => (
+              <li key={feature.id}>
+                <span><strong>{feature.properties.name}</strong>
+                  <small>{feature.properties.municipality || location.name}</small></span>
+                <button type="button" aria-label={`Locate ${feature.properties.name}`} onClick={() => focusBarangay(feature)}>
+                  Locate
+                </button>
+              </li>
+            ))}
+            {!sortedBarangays.length && <li>No barangay locations available yet.</li>}
+          </ul>
+        </details>
+      )}
 
       <nav className="bottom-nav" aria-label="Primary">
         {navigation.map((item) => (

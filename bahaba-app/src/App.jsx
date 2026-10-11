@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useSavedSetting } from './useSavedSetting'
+import { notificationRegistration, showBahabaNotification, withNotificationTimeout, newFloodReports } from './notifications'
 import './App.css'
 import SplashPage from './pages/SplashPage'
 import AuthPage from './pages/AuthPage'
@@ -154,14 +157,22 @@ function App() {
   const [locationDataLoading, setLocationDataLoading] = useState(false)
   const [activeNav, setActiveNav] = useState('alerts')
   const [searchTerm, setSearchTerm] = useState('')
-  const [darkMode, setDarkMode] = useState(false)
-  const [floodAlertsEnabled, setFloodAlertsEnabled] = useState(true)
-  const [locationSharingEnabled, setLocationSharingEnabled] = useState(false)
+  const [darkMode, setDarkMode] = useSavedSetting('bahaba_dark_mode', false)
+  const [floodAlertsEnabled, setFloodAlertsEnabled] = useSavedSetting('bahaba_flood_alerts', true)
+  const [locationSharingEnabled, setLocationSharingEnabled] = useSavedSetting('bahaba_location_sharing', false)
   const [currentLocation, setCurrentLocation] = useState(null)
   const [currentPlace, setCurrentPlace] = useState('')
-  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false)
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useSavedSetting('bahaba_notifications', true)
+  const notificationPreferences = useRef({})
+  notificationPreferences.current = { push: pushNotificationsEnabled, flood: floodAlertsEnabled }
   const [locationStatus, setLocationStatus] = useState('')
   const [notificationStatus, setNotificationStatus] = useState('')
+  const [alertBanner, setAlertBanner] = useState(null)
+  const appShellRef = useRef(null)
+  const [notificationHost, setNotificationHost] = useState(null)
+  useLayoutEffect(() => {
+    setNotificationHost(appShellRef.current?.querySelector('.phone-screen') || null)
+  }, [screen])
   const [currentUser, setCurrentUser] = useState(null)
   const [locationData, setLocationData] = useState({
     reports: [],
@@ -219,6 +230,7 @@ function App() {
   }, [])
 
   useEffect(() => {
+    setAlertBanner(null)
     if (!currentUser?.selected_location) {
       setLocationData({
         reports: [],
@@ -231,28 +243,58 @@ function App() {
     }
 
     let cancelled = false
-    const refreshLocationData = () =>
-      getLocationData()
-        .then((data) => {
-          if (!cancelled) setLocationData(data)
+    let refreshing = false
+    let seenReports = null
+    setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
+    const refreshLocationData = () => {
+      if (refreshing || cancelled) return
+      refreshing = true
+      return getLocationData()
+        .then(async (data) => {
+          if (cancelled) return
+          setLocationData(data)
+          const reports = Array.isArray(data.reports) ? data.reports : []
+          const fresh = seenReports ? newFloodReports(reports, seenReports) : []
+          const previous = seenReports || new Set()
+          seenReports = new Set([...previous, ...reports.map((report) => String(report.id))])
+          if (!fresh.length || !notificationPreferences.current.flood) return
+          const report = fresh[0]
+          const title = fresh.length === 1 ? 'BAHABA: New flood report' : `BAHABA: ${fresh.length} new flood reports`
+          const body = fresh.length === 1 ? `${report.severity || 'Unspecified'} alert in ${report.barangay || report.city}: ${report.description || 'Flooding reported'}` : fresh.map((item) => `${item.barangay || item.city}: ${item.severity || 'unspecified'}`).join(' · ')
+          setAlertBanner({ title, body, isTest: false })
+          if (!notificationPreferences.current.push || !('Notification' in window) || Notification.permission !== 'granted') return
+          try {
+            const registration = await notificationRegistration()
+            if (cancelled || !notificationPreferences.current.push || !notificationPreferences.current.flood) return
+            await showBahabaNotification(title, {
+              body,
+              tag: `bahaba-reports-${fresh.map((item) => item.id).join('-')}`,
+              data: { url: '/' },
+            }, registration)
+          } catch (error) {
+            fresh.forEach((report) => seenReports.delete(String(report.id)))
+            setNotificationStatus(`Flood notification failed: ${error.message}`)
+          }
         })
         .catch((error) => {
           if (!cancelled) {
-            setLocationData({
-              reports: [],
-              nlp_events: [],
-              announcements: [],
-              command_center: null,
-              evacuation_centers: [],
-            })
             console.warn('Could not load location data:', error.message)
           }
         })
+        .finally(() => { refreshing = false })
+    }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible' || (notificationPreferences.current.push && notificationPreferences.current.flood)) refreshLocationData()
+    }
     refreshLocationData()
-    const refreshTimer = window.setInterval(refreshLocationData, 30000)
+    const refreshTimer = window.setInterval(refreshWhenVisible, 5000)
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
       cancelled = true
       window.clearInterval(refreshTimer)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [currentUser?.id, currentUser?.selected_location])
 
@@ -263,7 +305,7 @@ function App() {
     }
   }, [screen])
 
-  // Manual refresh for the Alerts page (the 30s auto-refresh above is unchanged)
+  // Manual refresh for the Alerts page, in addition to automatic location updates.
   const handleRefreshLocationData = async () => {
     if (!currentUser?.selected_location || locationRefreshing) return
     setLocationRefreshing(true)
@@ -553,6 +595,12 @@ function App() {
     })
   }
 
+  const handleSaveProfile = async (changes) => {
+    const { user } = await updateProfile(changes)
+    setCurrentUser(user)
+    saveUserSession(user)
+  }
+
   const handleDesiredLocationChange = async (selectedLocation) => {
     setLocationChangeStatus('')
     setLocationChangeBusy(true)
@@ -574,7 +622,7 @@ function App() {
     }
   }
 
-  const handleLocationToggle = (enabled) => {
+  const handleLocationToggle = useCallback((enabled) => {
     if (!enabled) {
       setLocationSharingEnabled(false)
       setCurrentLocation(null)
@@ -624,7 +672,12 @@ function App() {
         maximumAge: 60000,
       },
     )
-  }
+  }, [setLocationSharingEnabled])
+
+  useEffect(() => {
+    if (!currentUser?.id || !locationSharingEnabled) return
+    handleLocationToggle(true)
+  }, [currentUser?.id, locationSharingEnabled, handleLocationToggle])
 
   const handleNotificationsToggle = async (enabled) => {
     if (!enabled) {
@@ -633,7 +686,14 @@ function App() {
       return
     }
 
-    if (!('Notification' in window)) {
+    setNotificationStatus('Starting notification test…')
+    setAlertBanner({ title: 'Test notification', body: 'This is how flood alerts will appear in BAHABA.', isTest: true })
+    if (!window.isSecureContext) {
+      setNotificationStatus('Notifications require HTTPS or localhost. Open BAHABA using a secure address.')
+      return
+    }
+
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
       setNotificationStatus(
         'Notifications are not available in this browser.',
       )
@@ -641,7 +701,8 @@ function App() {
     }
 
     try {
-      const permission = await Notification.requestPermission()
+      setNotificationStatus(`Checking Chrome notification permission (${Notification.permission})… If a permission prompt appears, choose Allow.`)
+      const permission = await withNotificationTimeout(Notification.requestPermission(), 'Permission request')
       if (permission !== 'granted') {
         setPushNotificationsEnabled(false)
         setNotificationStatus(
@@ -650,17 +711,20 @@ function App() {
         return
       }
 
+      setNotificationStatus('Permission granted. Starting notification worker…')
+      const registration = await notificationRegistration()
+      setNotificationStatus('Worker ready. Asking Chrome to display the notification…')
+      await showBahabaNotification('BAHABA alerts enabled', {
+        body: 'This is a test notification. Keep BAHABA open to receive new LGU flood alerts.',
+        tag: `bahaba-notification-test-${Date.now()}`,
+      }, registration)
       setPushNotificationsEnabled(true)
-      setNotificationStatus('Push notifications are enabled.')
-      if (floodAlertsEnabled) {
-        new Notification('BAHABA alerts enabled', {
-          body: 'You will receive flood alert notifications here.',
-        })
-      }
-    } catch {
+      const visible = await withNotificationTimeout(registration.getNotifications(), 'Reading active notifications')
+      setNotificationStatus(visible.length > 0 ? 'Test sent. Keep BAHABA open to receive new flood alerts.' : 'Test sent. Check your notification center if no banner appeared.')
+    } catch (error) {
       setPushNotificationsEnabled(false)
       setNotificationStatus(
-        'Notifications are blocked for this site. Allow them in browser settings, then try again.',
+        `Could not show the test notification: ${error.message || 'Unknown browser error'}. Check browser and device notification settings.`,
       )
     }
   }
@@ -903,6 +967,7 @@ function App() {
           <SettingsPage
             currentUser={currentUser}
             darkMode={darkMode}
+            onSaveProfile={handleSaveProfile}
             setDarkMode={setDarkMode}
             navigation={navigation}
             activeNav={activeNav}
@@ -934,8 +999,20 @@ function App() {
   }
 
   return (
-    <div className={`app-shell ${darkMode ? 'theme-dark' : ''}`}>
+    <div ref={appShellRef} className={`app-shell ${darkMode ? 'theme-dark' : ''}`}>
       {renderScreen()}
+      {alertBanner && notificationHost && createPortal(
+        <aside className="in-app-alert" aria-label="Flood notification">
+          <div role="status" aria-live="polite" aria-atomic="true">
+            <strong>{alertBanner.title}</strong>
+            <p>{alertBanner.body}</p>
+          </div>
+          <div className="in-app-alert-actions">
+            {!alertBanner.isTest && <button type="button" onClick={() => { setScreen('alerts'); setAlertBanner(null) }}>View alerts</button>}
+            <button type="button" onClick={() => setAlertBanner(null)} aria-label="Dismiss notification">Dismiss</button>
+          </div>
+        </aside>, notificationHost
+      )}
     </div>
   )
 }

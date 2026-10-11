@@ -70,7 +70,7 @@ export default function AlertsPage({
   onRefresh,
   refreshing = false,
 }) {
-  const cityLabel = selectedCity || 'your area'
+  const cityLabel = 'your preferred and current locations'
   const floodItems = [...reports, ...nlpEvents]
   const highItems = floodItems.filter(isHigh)
   const hasHigh = highItems.length > 0
@@ -80,7 +80,7 @@ export default function AlertsPage({
   let heroText
   if (hasHigh) {
     const first = highItems[0]
-    const where = [formatBarangay(first.barangay), selectedCity].filter(Boolean).join(', ') || cityLabel
+    const where = [formatBarangay(first.barangay), first.city, first.province].filter(Boolean).join(', ') || cityLabel
     const extra = highItems.length - 1
     heroTitle = (
       <>
@@ -98,8 +98,8 @@ export default function AlertsPage({
     )
     heroText = `Conditions are being monitored in ${cityLabel}.`
   } else {
-    heroTitle = <span>No active alerts</span>
-    heroText = `No flood reports for ${cityLabel}.`
+    heroTitle = <span>No reports available</span>
+    heroText = 'No reports does not confirm absence of flooding. Some LGUs do not supply data.'
   }
 
   const contacts = [
@@ -186,10 +186,10 @@ export default function AlertsPage({
               <strong>Current advisories</strong>
               <small>{announcements.length ? `${announcements.length} published` : 'Nothing issued'}</small>
             </div>
-            <span className={`badge ${announcements.length ? 'warn' : 'ok'}`}>{announcements.length ? 'Active' : 'All clear'}</span>
+            <span className={`badge ${announcements.length ? 'warn' : 'ok'}`}>{announcements.length ? 'Active' : 'No advisories available'}</span>
           </div>
           {announcements.slice(0, 3).map((announcement) => (
-            <div className="al-row al-row-text" key={announcement.id}><span>{announcement.title}</span></div>
+            <div className="al-row al-row-text" key={announcement.id}><span>{announcement.title}<small>{[announcement.city, announcement.province, announcement.barangay].filter(Boolean).join(', ')}</small></span></div>
           ))}
         </section>
 
@@ -198,7 +198,7 @@ export default function AlertsPage({
             <h3 className="al-card-title">Flood reports</h3>
             {floodItems.slice(0, 5).map((item, index) => (
               <div className="al-row al-row-text" key={`${item.id || item.created_at}-${item.barangay || ''}-${index}`}>
-                <span>{item.barangay ? `${item.barangay}, ` : ''}{selectedCity}</span>
+                <span>{[item.barangay, item.city, item.province].filter(Boolean).join(', ')}</span>
                 <span className={`risk-tag ${isHigh(item) ? 'red' : 'amber'}`}>{item.severity || 'Report'}</span>
               </div>
             ))}

@@ -1,6 +1,16 @@
 <?php
 
 require_once __DIR__ . '/location_helpers.php';
+require_once __DIR__ . '/psgc.php';
+
+// API errors must never turn into HTML pages that the resident client cannot parse.
+ini_set('display_errors', '0');
+set_exception_handler(static function (Throwable $error): void {
+    error_log('BAHABA API failed: ' . $error->getMessage());
+    http_response_code($error instanceof PDOException ? 503 : 500);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'The service is temporarily unavailable. Please try again shortly.']);
+});
 
 $configPath = __DIR__ . '/config.php';
 if (!is_file($configPath)) {
@@ -72,6 +82,10 @@ try {
 }
 
 bahaba_ensure_location_schema($pdo);
+require_once __DIR__.'/password-recovery.php';
+bahaba_reset_schema($pdo);
+bahaba_ensure_column($pdo, 'reports', 'map_hidden', 'BOOLEAN NOT NULL DEFAULT FALSE');
+bahaba_ensure_psgc_schema($pdo);
 
 function request_json(): array
 {
@@ -89,6 +103,8 @@ function respond(array $data, int $status = 200): never
 function public_user(array $user): array
 {
     return [
+        'preferred_locations' => bahaba_preferred_locations($user),
+        'preferences_updated_at' => $user['preferences_updated_at'] ?? null,
         'id' => (int) $user['id'],
         'email' => $user['email'],
         'username' => $user['username'],

@@ -1,0 +1,83 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+const root = resolve(import.meta.dirname, '..')
+const fixture = action => execFileSync('php', [resolve(import.meta.dirname, 'test-psgc-fixtures.php'), action], { encoding: 'utf8' })
+const serve = resolve(root, 'migration-test.local/http')
+mkdirSync(resolve(serve, 'api'), { recursive: true })
+for (const name of ['bootstrap.php','password-recovery.php','profile.php','login.php','location_helpers.php','psgc.php','notifications.php','map-reports.php','resolve-location.php','municipality-boundaries.php','municipality-boundaries.json','location-data.php']) cpSync(resolve(root,'api',name),resolve(serve,'api',name))
+cpSync(resolve(root,'api/municipality-geometry'),resolve(serve,'api/municipality-geometry'),{recursive:true})
+for (const name of ['psgc-registry.json','location-config.json']) cpSync(resolve(root,name),resolve(serve,name))
+writeFileSync(resolve(serve,'api/config.php'), `<?php return ['db'=>['dsn'=>'mysql:host=127.0.0.1;port=33317;dbname=bahaba_psgc_integration_test;charset=utf8mb4','username'=>'root','password'=>''],'frontend_origin'=>'http://127.0.0.1:33318'];`)
+console.log(fixture('setup').trim())
+const { spawn } = await import('node:child_process')
+const server = spawn('php',['-S','127.0.0.1:33318','-t',serve],{stdio:'ignore'})
+let cookie = ''
+async function api(path, data, expected = 200) {
+  const response = await fetch(`http://127.0.0.1:33318/api/${path}`, { method: data ? (path === 'login.php' ? 'POST' : 'PUT') : 'GET', headers: { 'Content-Type':'application/json', Cookie:cookie }, ...(data ? {body:JSON.stringify(data)} : {}) })
+  if (response.headers.get('set-cookie')) cookie=response.headers.get('set-cookie').split(';')[0]
+  const text=await response.text()
+  assert.equal(response.status, expected, text)
+  return JSON.parse(text)
+}
+try {
+  for(let i=0;i<50;i++) { try { await fetch('http://127.0.0.1:33318/'); break } catch { await new Promise(r=>setTimeout(r,100)) } }
+  await api('map-reports.php',undefined,401)
+  const login=await api('login.php',{email:'resident@gmail.com',password:'TestPassword123!'})
+  assert.deepEqual(login.user.preferred_locations,['1380900000'])
+  await api('profile.php',{preferred_locations:[]},422)
+  await api('profile.php',{preferred_locations:['1380900000']})
+  await api('profile.php',{preferred_locations:['1380900000','1380700000']})
+  await api('profile.php',{preferred_locations:['1380900000','1380700000','0301410000','1380600000']},422)
+  await api('profile.php',{preferred_locations:['1380900000','1380900000','1380700000']},422)
+  await api('profile.php',{preferred_locations:['1380900000','1380700000','invalid']},422)
+  const ids=['1380900000','1380700000','0301410000']
+  await api('profile.php',{preferred_locations:ids})
+  assert.deepEqual((await api('profile.php')).user.preferred_locations,ids)
+  const baseline=await api('notifications.php')
+  assert.equal(baseline.events.length,0)
+  fixture('records')
+  const batch=await api(`notifications.php?after=${baseline.cursor}&current=1380900000`)
+  assert.equal(batch.events.length,3,'Two preferred floods and one published advisory, with overlapping current/preferred deduplicated')
+  assert.equal(new Set(batch.events.map(e=>e.id)).size,3)
+  assert(batch.events.every(e=>ids.includes(e.psgc_id)))
+  assert(batch.events.every(e=>e.city && e.title))
+  assert.equal((await api(`notifications.php?after=${batch.cursor}`)).events.length,0)
+  const map=await api('map-reports.php?location=1380600000')
+  assert.equal(map.reports.length,1,'Outside-preference reports are browseable')
+  assert(!JSON.stringify(map).includes('PRIVATE REPORTER'))
+  assert.deepEqual((await api('profile.php')).user.preferred_locations,ids,'Browsing never subscribes')
+  const current=await api(`notifications.php?after=${baseline.cursor}&current=1380600000`)
+  assert.equal(current.events.length,5,'Current municipality unions with preferred locations')
+  fixture('publish')
+  const publication=await api(`notifications.php?after=${current.cursor}`)
+  assert.equal(publication.events.length,1,'Draft publication generates a new eligible event')
+  assert.equal(publication.events[0].title,'Draft becoming published')
+  await api('profile.php',{preferred_locations:['1380600000',...ids.slice(0,2)]})
+  assert.equal((await api(`notifications.php?after=${baseline.cursor}`)).events.length,0,'Server baseline also protects another device using an old cursor')
+  assert.equal((await api('notifications.php')).events.length,0,'Preference-change baseline excludes existing records')
+  const noGps=await api('resolve-location.php?latitude=0&longitude=0&accuracy=10')
+  assert.equal(noGps.location,null)
+  const gps=await api('resolve-location.php?latitude=14.60&longitude=120.98&accuracy=10')
+  assert.equal(gps.location?.id,'1380600000','GPS point containment identifies Manila')
+  const data=await api('location-data.php')
+  assert(data.reports.every(r=>r.status==='verified'))
+  assert.equal(data.nlp_events.length,0,'Raw NLP stays private')
+  assert(data.announcements.every(a=>a.status==='published'))
+  fixture('burst')
+  const first=await api('map-reports.php?bbox=120,14,122,16')
+  assert.equal(first.reports.length,500); assert(first.next)
+  const second=await api(`map-reports.php?bbox=120,14,122,16&before=${first.next}`)
+  assert(second.reports.length>0)
+  assert(!second.reports.some(r=>first.reports.some(f=>f.id===r.id)))
+  let cursor=publication.cursor, count=0
+  for(let i=0;i<4;i++) { const page=await api(`notifications.php?after=${cursor}`); count+=page.events.filter(e=>e.title==='LOW flood report').length; cursor=page.cursor }
+  assert.equal(count,520,'Notification cursor handles bursts beyond page limit without duplicates or loss')
+  await api('map-reports.php?bbox=invalid',undefined,422)
+  await api('map-reports.php?location=unknown',undefined,422)
+  console.log('PASS API auth, preferences, one-to-three, persistence, baseline, notification union, advisory publication, deduplication, private-data exclusion, GPS containment/failure, nationwide independent browsing, viewport and cursor pagination')
+} finally {
+  server.kill()
+  if (!process.env.BAHABA_KEEP_TEST_DB) console.log(fixture('drop').trim())
+}

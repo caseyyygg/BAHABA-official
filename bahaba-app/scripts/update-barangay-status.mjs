@@ -1,0 +1,10 @@
+import {readFileSync,writeFileSync,copyFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+const admin=resolve(process.argv[2]||resolve(import.meta.dirname,'../preview.local/full-admin'));
+copyFileSync(resolve(import.meta.dirname,'admin-barangay-status.js'),resolve(admin,'barangay-status.js'));
+const file=resolve(admin,'App.js');let app=readFileSync(file,'utf8');
+app=app.replace("document.getElementById('command-ledger').innerHTML = scope.map(b=>{", "document.getElementById('command-ledger').innerHTML = (window.commandBarangayPage ? window.commandBarangayPage(scope) : scope.slice(0,10)).map(b=>{");
+app=app.replace('<div class="ledger-name">Barangay ${b}</div>', '<div class="ledger-name">Barangay ${escapeNlpText(window.formatBarangayStatusName ? window.formatBarangayStatusName(b) : b)}</div>');
+writeFileSync(file,app);
+const htmlFile=resolve(admin,'index.html');let html=readFileSync(htmlFile,'utf8');if(!html.includes('src="barangay-status.js'))html=html.replace('</body>','<script src="barangay-status.js"></script>\n</body>');writeFileSync(htmlFile,html);
+console.log('Updated Barangay Status search, ten-row pages and display names in '+admin);

@@ -6,6 +6,7 @@ CREATE TABLE users (
   email VARCHAR(254) NOT NULL UNIQUE,
   username VARCHAR(50) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
+  password_reset_version INT UNSIGNED NOT NULL DEFAULT 0,
   location VARCHAR(255) NULL,
   selected_location VARCHAR(32) NULL,
   region VARCHAR(150) NULL,
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
   email VARCHAR(254) NOT NULL UNIQUE,
   username VARCHAR(50) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
+  password_reset_version INT UNSIGNED NOT NULL DEFAULT 0,
   city VARCHAR(100) NULL,
   assigned_location VARCHAR(32) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -89,3 +91,11 @@ CREATE TABLE IF NOT EXISTS report_monthly_summary (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_summary_location_month (location_id, report_month)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  scope VARCHAR(16) NOT NULL, user_id BIGINT UNSIGNED NOT NULL, token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL, PRIMARY KEY(scope,user_id)
+);
+CREATE TABLE IF NOT EXISTS password_reset_limits (
+  bucket CHAR(64) PRIMARY KEY, started_at BIGINT NOT NULL, attempts INT NOT NULL
+);

@@ -14,6 +14,7 @@ function bahaba_supported_locations(): array
 
 function bahaba_location_by_id(string $locationId): ?array
 {
+    if (function_exists('bahaba_psgc_by_id') && ($psgc = bahaba_psgc_by_id($locationId))) return $psgc;
     foreach (bahaba_supported_locations() as $location) {
         if ($location['id'] === strtolower(trim($locationId))) {
             return $location;
@@ -24,6 +25,7 @@ function bahaba_location_by_id(string $locationId): ?array
 
 function bahaba_normalize_location_id(?string $value): ?string
 {
+    if (function_exists('bahaba_psgc_by_id') && bahaba_psgc_by_id((string) $value)) return $value;
     $value = strtolower(trim((string) $value));
     if ($value === '') {
         return null;
@@ -54,7 +56,9 @@ function bahaba_authenticated_app_user(PDO $pdo): ?array
 
     $statement = $pdo->prepare('SELECT * FROM users WHERE id = :id LIMIT 1');
     $statement->execute(['id' => (int) $_SESSION['user_id']]);
-    return $statement->fetch() ?: null;
+    $user = $statement->fetch() ?: null;
+    if ($user && (int)($user['password_reset_version'] ?? 0) !== (int)($_SESSION['user_reset_version'] ?? 0)) { unset($_SESSION['user_id']); return null; }
+    return $user;
 }
 
 function bahaba_table_exists(PDO $pdo, string $table): bool

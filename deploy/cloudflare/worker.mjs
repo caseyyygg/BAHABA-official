@@ -1,4 +1,4 @@
-const endpoints = new Set(['index.php', 'login.php', 'logout.php', 'me.php', 'profile.php', 'location-data.php', 'signup.php', 'resend-verification.php', 'verify.php'])
+const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'location-data.php', 'map-reports.php', 'notifications.php', 'resolve-location.php', 'signup.php', 'resend-verification.php', 'verify.php'])
 
 export default {
   async fetch(request, env) {

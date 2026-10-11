@@ -13,6 +13,9 @@ dist-ssr
 *.local
 api/config.php
 api/vendor
+__pycache__/
+psgc-source.xlsx
+municipal-boundaries.zip
 
 # Editor directories and files
 .vscode/*

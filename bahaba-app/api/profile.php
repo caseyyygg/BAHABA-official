@@ -18,13 +18,23 @@ if ($_SERVER['REQUEST_METHOD'] !== 'PUT') {
 $data = request_json();
 $updates = [];
 $params = ['id' => (int) $user['id']];
-if (array_diff(array_keys($data), ['username', 'password', 'current_password', 'selected_location'])) {
+if (array_diff(array_keys($data), ['username', 'password', 'current_password', 'selected_location', 'preferred_locations'])) {
     respond(['error' => 'Only your name, password, and desired location can be changed.'], 422);
+}
+if (array_key_exists('preferred_locations', $data)) {
+    $ids = $data['preferred_locations'];
+    if (!is_array($ids) || count($ids) > 3 || count($ids) < 1) respond(['error' => 'Choose 1 to 3 distinct cities or municipalities.'], 422);
+    foreach ($ids as $id) if (!is_string($id) || !bahaba_psgc_by_id($id)) respond(['error' => 'Invalid PSGC city or municipality.'], 422);
+    if (count(array_unique($ids)) !== count($ids)) respond(['error' => 'Choose 1 to 3 distinct cities or municipalities.'], 422);
+    $updates[] = 'preferred_locations = :preferred_locations';
+    $updates[] = 'preferences_updated_at = CURRENT_TIMESTAMP(6)';
+    $updates[] = 'notification_baseline_id = (SELECT COALESCE(MAX(id),0) FROM resident_notification_events)';
+    $params['preferred_locations'] = json_encode(array_values(array_unique($ids)));
 }
 if (array_key_exists('selected_location', $data)) {
     $location = bahaba_location_by_id((string) $data['selected_location']);
     if (!$location) respond(['error' => 'Choose one of the supported locations.'], 422);
-    $updates = ['selected_location = :selected_location', 'region = :region', 'city = :city', 'barangays = :barangays'];
+    $updates = array_merge($updates, ['selected_location = :selected_location', 'region = :region', 'city = :city', 'barangays = :barangays']);
     $params += ['selected_location' => $location['id'], 'region' => $location['region'], 'city' => $location['city'], 'barangays' => json_encode([])];
 }
 if (array_key_exists('username', $data)) {

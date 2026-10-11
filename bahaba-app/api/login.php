@@ -21,8 +21,10 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
 }
 if (!$user['email_verified_at']) {
     $_SESSION['pending_user_id'] = (int) $user['id'];
+    $_SESSION['pending_user_reset_version'] = (int)($user['password_reset_version'] ?? 0);
     respond(['error' => 'Please activate your account from the link sent to your Gmail first.', 'needsVerification' => true], 403);
 }
 
 $_SESSION['user_id'] = (int) $user['id'];
+$_SESSION['user_reset_version'] = (int)($user['password_reset_version'] ?? 0);
 respond(['user' => public_user($user)]);

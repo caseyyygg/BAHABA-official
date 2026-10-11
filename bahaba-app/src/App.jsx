@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useSavedSetting } from './useSavedSetting'
-import { notificationRegistration, showBahabaNotification, withNotificationTimeout, newFloodReports } from './notifications'
+import { notificationRegistration, showBahabaNotification, withNotificationTimeout } from './notifications'
 import './App.css'
 import SplashPage from './pages/SplashPage'
 import AuthPage from './pages/AuthPage'
-import SelectionPage from './pages/SelectionPage'
-import MapPage from './pages/MapPage'
+import ForgotPassword from './components/ForgotPassword'
 import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
+import LocationPicker from './components/LocationPicker'
+import { getNotificationEvents, resolveCurrentLocation } from './api'
 import {
   checkVerification,
   getLocationData,
@@ -20,7 +21,8 @@ import {
   signup,
   updateProfile,
 } from './api'
-import { locationById, supportedLocations } from './locations'
+import { locationById, supportedLocations, completedPreferences } from './locations'
+const NationwideMap = lazy(() => import('./pages/NationwideMap'))
 
 const getPlaceName = async ({ latitude, longitude }) => {
   const response = await fetch(
@@ -44,66 +46,6 @@ const getPlaceName = async ({ latitude, longitude }) => {
   )?.name
 
   return neighborhood ? `${neighborhood}, ${area}` : area
-}
-
-const regions = [
-  'National Capital Region — Metro Manila',
-  'Cordillera Administrative Region',
-  'Region I (Ilocos Region)',
-  'Region II (Cagayan Valley)',
-  'Region III (Central Luzon)',
-  'Region IV-A (CALABARZON)',
-  'Region IV-B (MIMAROPA)',
-  'Region V (Bicol Region)',
-]
-
-const fallbackCities = [
-  'Caloocan',
-  'Navotas',
-  'Las Piñas',
-  'Parañaque',
-  'Makati',
-  'Pasay',
-  'Malabon',
-  'Quezon City',
-  'Manila',
-  'San Juan',
-  'Marikina',
-  'Taguig',
-  'Muntinlupa',
-  'Valenzuela',
-]
-
-const fallbackBarangays = [
-  'Acacia',
-  'Niugan',
-  'Baritan',
-  'Panghulo',
-  'Bayan-bayanan',
-  'Potrero',
-  'Catmon',
-  'San Agustin',
-  'Dampalit',
-  'Tañong',
-  'Hulong Duhat',
-  'Tinajeros',
-  'Ibaba',
-  'Tonsuya',
-  'Longos',
-  'Tugatog',
-  'Concepcion',
-  'Santulan',
-]
-
-const regionCodes = {
-  'National Capital Region — Metro Manila': '130000000',
-  'Cordillera Administrative Region': '140000000',
-  'Region I (Ilocos Region)': '010000000',
-  'Region II (Cagayan Valley)': '020000000',
-  'Region III (Central Luzon)': '030000000',
-  'Region IV-A (CALABARZON)': '040000000',
-  'Region IV-B (MIMAROPA)': '170000000',
-  'Region V (Bicol Region)': '050000000',
 }
 
 const navigation = [
@@ -144,24 +86,14 @@ function App() {
     email: '',
     password: '',
   })
-  const [selectedRegion, setSelectedRegion] = useState(
-    'National Capital Region — Metro Manila',
-  )
-  const [selectedCity, setSelectedCity] = useState('Malabon')
-  const [selectedBarangays, setSelectedBarangays] = useState([
-    'Concepcion',
-    'Bayan-bayanan',
-  ])
-  const [availableCities, setAvailableCities] = useState(fallbackCities)
-  const [availableBarangays, setAvailableBarangays] = useState(fallbackBarangays)
-  const [locationDataLoading, setLocationDataLoading] = useState(false)
+  const [selectedCity, setSelectedCity] = useState('')
   const [activeNav, setActiveNav] = useState('alerts')
-  const [searchTerm, setSearchTerm] = useState('')
   const [darkMode, setDarkMode] = useSavedSetting('bahaba_dark_mode', false)
   const [floodAlertsEnabled, setFloodAlertsEnabled] = useSavedSetting('bahaba_flood_alerts', true)
   const [locationSharingEnabled, setLocationSharingEnabled] = useSavedSetting('bahaba_location_sharing', false)
   const [currentLocation, setCurrentLocation] = useState(null)
   const [currentPlace, setCurrentPlace] = useState('')
+  const [currentPsgc, setCurrentPsgc] = useState(null)
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useSavedSetting('bahaba_notifications', true)
   const notificationPreferences = useRef({})
   notificationPreferences.current = { push: pushNotificationsEnabled, flood: floodAlertsEnabled }
@@ -171,7 +103,13 @@ function App() {
   const appShellRef = useRef(null)
   const [notificationHost, setNotificationHost] = useState(null)
   useLayoutEffect(() => {
-    setNotificationHost(appShellRef.current?.querySelector('.phone-screen') || null)
+    const shell = appShellRef.current
+    const update = () => setNotificationHost(shell?.querySelector('.phone-screen') || null)
+    update()
+    // Suspense can replace the screen after this effect runs.
+    const observer = new MutationObserver(update)
+    if (shell) observer.observe(shell, { childList: true })
+    return () => observer.disconnect()
   }, [screen])
   const [currentUser, setCurrentUser] = useState(null)
   const [locationData, setLocationData] = useState({
@@ -181,9 +119,7 @@ function App() {
     command_center: null,
     evacuation_centers: [],
   })
-  const [locationChangeStatus, setLocationChangeStatus] = useState('')
   const [locationRefreshing, setLocationRefreshing] = useState(false)
-  const [locationChangeBusy, setLocationChangeBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
@@ -204,16 +140,11 @@ function App() {
       getProfile()
         .then(({ user }) => {
           setCurrentUser(user)
-          setSelectedRegion(
-            user.region || 'National Capital Region — Metro Manila',
-          )
           setSelectedCity(
             locationById(user.selected_location)?.city || user.city || '',
           )
-          setSelectedBarangays(
-            Array.isArray(user.barangays) ? user.barangays : [],
-          )
-          setScreen(user.selected_location ? 'map' : 'settings')
+          // Returning sessions use the locations already stored on the account.
+          setScreen('map')
           saveUserSession(user)
         })
         .catch(() => clearUserSession())
@@ -229,74 +160,49 @@ function App() {
     }
   }, [])
 
+  const notificationScope = `${currentUser?.id || ''}:${currentUser?.preferences_updated_at || ''}:${(currentUser?.preferred_locations || []).join(',')}`
   useEffect(() => {
     setAlertBanner(null)
-    if (!currentUser?.selected_location) {
-      setLocationData({
-        reports: [],
-        nlp_events: [],
-        announcements: [],
-        command_center: null,
-        evacuation_centers: [],
-      })
-      return undefined
-    }
-
+    if (!currentUser?.id) return
     let cancelled = false
     let refreshing = false
-    let seenReports = null
-    setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
-    const refreshLocationData = () => {
-      if (refreshing || cancelled) return
+    let cursor = null
+    const refresh = async () => {
+      if (cancelled || refreshing) return
       refreshing = true
-      return getLocationData()
-        .then(async (data) => {
-          if (cancelled) return
-          setLocationData(data)
-          const reports = Array.isArray(data.reports) ? data.reports : []
-          const fresh = seenReports ? newFloodReports(reports, seenReports) : []
-          const previous = seenReports || new Set()
-          seenReports = new Set([...previous, ...reports.map((report) => String(report.id))])
-          if (!fresh.length || !notificationPreferences.current.flood) return
-          const report = fresh[0]
-          const title = fresh.length === 1 ? 'BAHABA: New flood report' : `BAHABA: ${fresh.length} new flood reports`
-          const body = fresh.length === 1 ? `${report.severity || 'Unspecified'} alert in ${report.barangay || report.city}: ${report.description || 'Flooding reported'}` : fresh.map((item) => `${item.barangay || item.city}: ${item.severity || 'unspecified'}`).join(' · ')
-          setAlertBanner({ title, body, isTest: false })
-          if (!notificationPreferences.current.push || !('Notification' in window) || Notification.permission !== 'granted') return
-          try {
-            const registration = await notificationRegistration()
-            if (cancelled || !notificationPreferences.current.push || !notificationPreferences.current.flood) return
-            await showBahabaNotification(title, {
-              body,
-              tag: `bahaba-reports-${fresh.map((item) => item.id).join('-')}`,
-              data: { url: '/' },
-            }, registration)
-          } catch (error) {
-            fresh.forEach((report) => seenReports.delete(String(report.id)))
-            setNotificationStatus(`Flood notification failed: ${error.message}`)
-          }
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            console.warn('Could not load location data:', error.message)
-          }
-        })
-        .finally(() => { refreshing = false })
+      try {
+        const data = await getNotificationEvents(cursor, currentPsgc || '')
+        if (cancelled) return
+        cursor = data.cursor
+        const events = data.events.filter(e => e.kind !== 'flood' || notificationPreferences.current.flood)
+        if (!events.length) return
+        const title = events.length === 1 ? `BAHABA: ${events[0].title}` : `BAHABA: ${events.length} new alerts`
+        const body = events.map(e => [e.city, e.province, e.barangay, e.title].filter(Boolean).join(', ')).join(' · ')
+        setAlertBanner({ title, body, isTest: false })
+        if (notificationPreferences.current.push && 'Notification' in window && Notification.permission === 'granted') {
+          const registration = await notificationRegistration()
+          if (!cancelled && notificationPreferences.current.push) await showBahabaNotification(title, {
+            body, tag: `bahaba-events-${events.map(e => e.id).join('-')}`, data: { url: '/' },
+          }, registration)
+        }
+      } catch (e) {
+        if (!cancelled) setNotificationStatus(`Notifications unavailable: ${e.message}`)
+      } finally { refreshing = false }
     }
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible' || (notificationPreferences.current.push && notificationPreferences.current.flood)) refreshLocationData()
-    }
-    refreshLocationData()
-    const refreshTimer = window.setInterval(refreshWhenVisible, 5000)
-    window.addEventListener('focus', refreshWhenVisible)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-    return () => {
-      cancelled = true
-      window.clearInterval(refreshTimer)
-      window.removeEventListener('focus', refreshWhenVisible)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
-    }
-  }, [currentUser?.id, currentUser?.selected_location])
+    refresh()
+    const timer = window.setInterval(refresh, 5000)
+    window.addEventListener('focus', refresh)
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [notificationScope, currentUser?.id, currentPsgc])
+
+  useEffect(() => {
+    if (!currentUser?.id) return
+    let cancelled = false
+    const refresh = () => getLocationData(currentPsgc).then(data => { if (!cancelled) setLocationData(data) }).catch(() => {})
+    refresh()
+    const timer = window.setInterval(refresh, 10000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [notificationScope, currentUser?.id, currentPsgc])
 
   // Keep the bottom-nav highlight in sync with whichever tab screen is showing
   useEffect(() => {
@@ -307,10 +213,10 @@ function App() {
 
   // Manual refresh for the Alerts page, in addition to automatic location updates.
   const handleRefreshLocationData = async () => {
-    if (!currentUser?.selected_location || locationRefreshing) return
+    if (!currentUser?.id || locationRefreshing) return
     setLocationRefreshing(true)
     try {
-      setLocationData(await getLocationData())
+      setLocationData(await getLocationData(currentPsgc))
     } catch (error) {
       console.warn('Could not refresh location data:', error.message)
     } finally {
@@ -339,65 +245,6 @@ function App() {
       localStorage.removeItem('bahaba_app_session_expiry')
     } catch (e) {
       console.warn('Failed to clear session:', e)
-    }
-  }
-
-  const toggleBarangay = (barangay) => {
-    setSelectedBarangays((current) =>
-      current.includes(barangay)
-        ? current.filter((item) => item !== barangay)
-        : [...current, barangay],
-    )
-  }
-
-  const loadLocationData = async (url, fallback) => {
-    try {
-      const response = await fetch(url)
-      if (!response.ok) throw new Error('Location data unavailable')
-      const data = await response.json()
-      return data.map((item) => ({
-        name: item.name,
-        code: item.code,
-      }))
-    } catch {
-      return fallback.map((name) => ({
-        name,
-        code: name,
-      }))
-    }
-  }
-
-  const handleRegionSelect = async (region) => {
-    setSelectedRegion(region)
-    setSelectedCity('')
-    setSelectedBarangays([])
-    setLocationDataLoading(true)
-    setScreen('city')
-    try {
-      const citiesForRegion = await loadLocationData(
-        `https://psgc.gitlab.io/api/regions/${regionCodes[region]}/cities-municipalities/`,
-        region === 'National Capital Region — Metro Manila' ? fallbackCities : [],
-      )
-      setAvailableCities(citiesForRegion)
-    } finally {
-      setLocationDataLoading(false)
-    }
-  }
-
-  const handleCitySelect = async (city) => {
-    setSelectedCity(city.name)
-    setSelectedBarangays([])
-    setLocationDataLoading(true)
-    setScreen('barangay')
-    try {
-      const fallback = city.name === 'Malabon' ? fallbackBarangays : []
-      const barangaysForCity = await loadLocationData(
-        `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays/`,
-        fallback,
-      )
-      setAvailableBarangays(barangaysForCity.map((item) => item.name))
-    } finally {
-      setLocationDataLoading(false)
     }
   }
 
@@ -488,53 +335,20 @@ function App() {
     }
   }
 
-  const saveCreatedAccount = async () => {
-    setAuthError('')
-    const safeBarangays = Array.isArray(selectedBarangays)
-      ? selectedBarangays
-      : []
-    if (!selectedCity || safeBarangays.length === 0) {
-      setAuthError(
-        'Select a city and at least one barangay before creating your account.',
-      )
-      return
-    }
-    setAuthBusy(true)
-    try {
-      await signup({
-        ...signupForm,
-        selected_location: signupForm.selected_location,
-        region: selectedRegion,
-        city: selectedCity,
-        barangays: safeBarangays,
-      })
-      setSignupForm(emptySignup)
-      setScreen('verify')
-    } catch (error) {
-      setAuthError(error.message)
-    } finally {
-      setAuthBusy(false)
-    }
-  }
-
   const handleLogin = async () => {
     setAuthError('')
     setAuthBusy(true)
     try {
       const result = await login(loginForm)
-      const userBarangays = Array.isArray(result?.user?.barangays)
-        ? result.user.barangays
-        : []
       setCurrentUser(result.user)
       saveUserSession(result.user)
-      setSelectedRegion(result.user.region || selectedRegion)
       setSelectedCity(
         locationById(result.user.selected_location)?.city ||
           result.user.city ||
           '',
       )
-      setSelectedBarangays(userBarangays)
-      setScreen(result.user.selected_location ? 'map' : 'settings')
+      // Location onboarding belongs to account activation, not every login.
+      setScreen('map')
     } catch (error) {
       setAuthError(error.message)
       if (error.needsVerification) setScreen('verify')
@@ -550,14 +364,12 @@ function App() {
       const result = await checkVerification()
       setCurrentUser(result.user)
       saveUserSession(result.user)
-      setSelectedRegion(result.user.region || selectedRegion)
       setSelectedCity(
         locationById(result.user.selected_location)?.city ||
           result.user.city ||
           '',
       )
-      setSelectedBarangays(result.user.barangays || [])
-      setScreen(result.user.selected_location ? 'map' : 'settings')
+      setScreen(completedPreferences(result.user) ? 'map' : 'preferences')
     } catch (error) {
       setAuthError(error.message)
     } finally {
@@ -581,6 +393,10 @@ function App() {
 
   const handleLogout = async () => {
     setCurrentUser(null)
+    setCurrentPsgc(null)
+    setCurrentLocation(null)
+    setCurrentPlace('')
+    setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
     clearUserSession()
     setLoginForm({
       email: '',
@@ -601,83 +417,44 @@ function App() {
     saveUserSession(user)
   }
 
-  const handleDesiredLocationChange = async (selectedLocation) => {
-    setLocationChangeStatus('')
-    setLocationChangeBusy(true)
-    try {
-      const result = await updateProfile({
-        selected_location: selectedLocation,
-      })
-      setCurrentUser(result.user)
-      saveUserSession(result.user)
-      setSelectedRegion(result.user.region)
-      setSelectedCity(locationById(result.user.selected_location)?.city || '')
-      setSelectedBarangays([])
-      setActiveNav('map')
-      setScreen('map')
-    } catch (error) {
-      setLocationChangeStatus(error.message)
-    } finally {
-      setLocationChangeBusy(false)
-    }
-  }
-
   const handleLocationToggle = useCallback((enabled) => {
+    setLocationSharingEnabled(enabled)
     if (!enabled) {
-      setLocationSharingEnabled(false)
-      setCurrentLocation(null)
-      setCurrentPlace('')
-      setLocationStatus('Location sharing is off.')
-      return
+      setCurrentPsgc(null); setCurrentLocation(null); setCurrentPlace('')
+      setLocationStatus('Location sharing is off. Saved preferences remain active.')
     }
-
-    if (!navigator.geolocation) {
-      setLocationSharingEnabled(false)
-      setCurrentLocation(null)
-      setCurrentPlace('')
-      setLocationStatus('Location is not available in this browser.')
-      return
-    }
-
-    setLocationStatus('Requesting your location...')
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setLocationSharingEnabled(true)
-        setCurrentLocation({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        })
-        setCurrentPlace('Finding your place...')
-        setLocationStatus('Finding your current place...')
-        getPlaceName(coords)
-          .then((placeName) => {
-            setCurrentPlace(placeName)
-            setLocationStatus(`Location active: ${placeName}.`)
-          })
-          .catch(() => {
-            setCurrentPlace('Place unavailable')
-            setLocationStatus(
-              'Location is active, but the place name could not be found.',
-            )
-          })
-      },
-      () => {
-        setLocationSharingEnabled(false)
-        setCurrentLocation(null)
-        setLocationStatus('Location permission was not granted.')
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
-      },
-    )
   }, [setLocationSharingEnabled])
 
   useEffect(() => {
     if (!currentUser?.id || !locationSharingEnabled) return
-    handleLocationToggle(true)
-  }, [currentUser?.id, locationSharingEnabled, handleLocationToggle])
+    if (!navigator.geolocation) {
+      setCurrentPsgc(null); setLocationStatus('GPS is unavailable. Saved preferences remain active.')
+      return
+    }
+    let cancelled = false
+    let lookup = 0
+    setLocationStatus('Requesting your current location…')
+    const watch = navigator.geolocation.watchPosition(async ({ coords }) => {
+      const own = ++lookup
+      setCurrentLocation({ latitude: coords.latitude, longitude: coords.longitude })
+      try {
+        const { location } = await resolveCurrentLocation(coords)
+        if (cancelled || own !== lookup) return
+        setCurrentPsgc(location?.id || null); setCurrentPlace(location?.name || '')
+        setLocationStatus(location ? `Current location: ${location.name}` : 'Current municipality could not be verified. Saved preferences remain active.')
+      } catch {
+        if (!cancelled && own === lookup) {
+          setCurrentPsgc(null); setCurrentPlace('')
+          setLocationStatus('Location detection failed. Saved preferences remain active.')
+        }
+      }
+    }, () => {
+      if (cancelled) return
+      lookup++; setCurrentPsgc(null); setCurrentLocation(null); setCurrentPlace('')
+      setLocationStatus('GPS permission denied or detection failed. Saved preferences remain active.')
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 })
+    return () => { cancelled = true; navigator.geolocation.clearWatch(watch); setCurrentPsgc(null) }
+  }, [currentUser?.id, locationSharingEnabled])
 
   const handleNotificationsToggle = async (enabled) => {
     if (!enabled) {
@@ -764,6 +541,9 @@ function App() {
           />
         )
 
+      case 'forgot':
+        return <ForgotPassword onBack={() => setScreen('login')} />
+
       case 'login':
         return (
           <AuthPage
@@ -802,131 +582,17 @@ function App() {
           />
         )
 
-      case 'region':
-        return (
-          <SelectionPage
-            title="Your Location"
-            subtitle="Choose a region to receive real-time flood alerts."
-            items={regions}
-            selectedValue={selectedRegion}
-            onBack={() => setScreen('signup')}
-            onSelect={handleRegionSelect}
-          />
-        )
-
-      case 'city':
-        return (
-          <SelectionPage
-            title="Select City"
-            subtitle={`Choose a city or municipality in ${selectedRegion}.`}
-            items={availableCities}
-            selectedValue={selectedCity}
-            onBack={() => setScreen('region')}
-            onSelect={handleCitySelect}
-            loading={locationDataLoading}
-            gridMode
-          />
-        )
-
-      case 'barangay':
-        return (
-          <div className="phone-screen selection-screen">
-            <div className="statusbar">
-              <span>9:47</span>
-              <div className="status-icons">
-                <span className="signal">
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span className="wifi" />
-                <span className="battery" />
-              </div>
-            </div>
-
-            <div className="header-panel dark">
-              <div>Select Barangay</div>
-              <small>
-                Pick your barangay in {selectedCity} for precise alerts.
-              </small>
-            </div>
-
-            <button
-              className="back-link"
-              type="button"
-              onClick={() => setScreen('city')}
-            >
-              ← Back
-            </button>
-
-            <div
-              className="selection-list city-grid"
-              aria-busy={locationDataLoading}
-            >
-              <div className="list-title">Barangays</div>
-              {locationDataLoading && (
-                <div
-                  className="selection-skeleton-list"
-                  aria-label="Loading barangays"
-                >
-                  {Array.from({ length: 8 }, (_, index) => (
-                    <div className="selection-skeleton" key={index}>
-                      <span />
-                    </div>
-                  ))}
-                </div>
-              )}
-              {!locationDataLoading &&
-                availableBarangays.map((barangay) => (
-                  <button
-                    key={barangay}
-                    type="button"
-                    className={`option-row ${
-                      selectedBarangays.includes(barangay) ? 'selected' : ''
-                    }`}
-                    onClick={() => toggleBarangay(barangay)}
-                  >
-                    {barangay}
-                  </button>
-                ))}
-            </div>
-
-            <div className="bottom-actions">
-              <button
-                className="primary-button"
-                onClick={saveCreatedAccount}
-                disabled={authBusy || locationDataLoading}
-              >
-                {locationDataLoading
-                  ? 'LOADING BARANGAYS...'
-                  : authBusy
-                    ? 'CREATING ACCOUNT...'
-                    : 'Create Account'}
-              </button>
-              {authError && (
-                <p className="auth-error selection-error">{authError}</p>
-              )}
-            </div>
-          </div>
-        )
+      case 'preferences':
+        return <div className="phone-screen preferences-screen"><LocationPicker
+          initial={currentUser?.preferred_locations || []}
+          onSave={async ids => { await handleSaveProfile({ preferred_locations: ids }); setScreen('map') }}
+          onCancel={completedPreferences(currentUser) ? () => setScreen('settings') : undefined}
+          onLogout={handleLogout}
+        /></div>
 
       case 'map':
-        return (
-          <MapPage
-            key={currentUser?.selected_location || 'no-location'}
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            setSelectedBarangays={setSelectedBarangays}
-            selectedLocationId={currentUser?.selected_location}
-            reports={locationData.reports}
-            nlpEvents={locationData.nlp_events}
-            navigation={navigation}
-            activeNav={activeNav}
-            setActiveNav={setActiveNav}
-            setScreen={setScreen}
-          />
-        )
+        return <Suspense fallback={<div className="phone-screen">Loading nationwide map…</div>}><NationwideMap currentPsgc={currentPsgc} preferred={currentUser?.preferred_locations || []}
+          navigation={navigation} setScreen={setScreen} /></Suspense>
 
       case 'alerts':
         return (
@@ -984,12 +650,7 @@ function App() {
             notificationStatus={notificationStatus}
             currentLocation={currentLocation}
             currentPlace={currentPlace}
-            supportedLocations={supportedLocations}
-            onDesiredLocationChange={handleDesiredLocationChange}
-            locationChangeBusy={locationChangeBusy}
-            locationChangeStatus={locationChangeStatus}
             selectedCity={selectedCity}
-            selectedBarangays={selectedBarangays}
           />
         )
 
@@ -1002,7 +663,7 @@ function App() {
     <div ref={appShellRef} className={`app-shell ${darkMode ? 'theme-dark' : ''}`}>
       {renderScreen()}
       {alertBanner && notificationHost && createPortal(
-        <aside className="in-app-alert" aria-label="Flood notification">
+        <aside className="in-app-alert" aria-label="BAHABA notification">
           <div role="status" aria-live="polite" aria-atomic="true">
             <strong>{alertBanner.title}</strong>
             <p>{alertBanner.body}</p>

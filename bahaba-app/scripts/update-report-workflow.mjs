@@ -1,0 +1,10 @@
+import {readFileSync,writeFileSync,copyFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+const admin=resolve(process.argv[2]||'bahaba-app/preview.local/full-admin');
+for(const [source,target] of [['admin-report-management.php','report-management.php'],['admin-nlp-threshold.php','nlp-threshold.php'],['admin-report-manager.js','report-manager.js']])copyFileSync(resolve(import.meta.dirname,source),resolve(admin,target));
+const file=resolve(admin,'App.js');
+let app=readFileSync(file,'utf8');
+app=app.replaceAll("canDeleteModule(session, 'approval_board')","canApproveModule(session, 'approval_board')");
+app=app.replace('let list = REPORTS.filter(r => (r.city', "let list = REPORTS.filter(r => r.status !== 'rejected' && (r.city");
+writeFileSync(file,app);
+console.log('Updated report workflow in '+admin);

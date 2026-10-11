@@ -1,3 +1,4 @@
+import PasswordInput from '../components/PasswordInput'
 import { BrandMark, Icon } from '../components/Icon'
 
 export default function AuthPage({
@@ -72,8 +73,7 @@ export default function AuthPage({
             <label>Password</label>
             <div className="input-wrap">
               <Icon className="field-icon" name="lock" size={17} />
-              <input
-                type="password"
+              <PasswordInput
                 placeholder="Enter your password"
                 value={loginForm.password}
                 onChange={(e) => onLoginFieldChange('password', e.target.value)}
@@ -81,6 +81,7 @@ export default function AuthPage({
             </div>
           </div>
 
+          <p className="small-link" style={{ textAlign: 'right', marginTop: 8 }}><button type="button" onClick={() => onSwitchMode('forgot')}>Forgot password?</button></p>
           {error && <p className="auth-error">{error}</p>}
           <button className="primary-button" onClick={onLoginSubmit} disabled={busy}>{busy ? 'LOGGING IN...' : 'Log in'}</button>
 
@@ -144,8 +145,7 @@ export default function AuthPage({
           <label>Password</label>
           <div className="input-wrap">
             <Icon className="field-icon" name="lock" size={17} />
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Create a password"
               value={signupForm.password}
               onChange={(e) => onSignupFieldChange('password', e.target.value)}

@@ -3,13 +3,14 @@
 // Credentials stay in the existing ignored local configuration.
 $config = require dirname(__DIR__) . '/api/config.php';
 $pdo = new PDO($config['db']['dsn'], $config['db']['username'], $config['db']['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-$directory = dirname(__DIR__) . '/migration.local';
+$directory = isset($argv[1]) ? rtrim($argv[1], '/\\') : dirname(__DIR__) . '/migration.local';
 if (!is_dir($directory)) mkdir($directory, 0700, true);
-$path = $directory . '/bahaba-hosting-' . date('Ymd-His') . '.sql';
+$stamp = new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
+$path = $directory . '/bahaba-hosting-' . $stamp->format('Ymd-His') . '.sql';
 $output = fopen($path, 'xb');
 if (!$output) throw new RuntimeException('Cannot open private export.');
 $identifier = static fn(string $name): string => '`' . str_replace('`', '``', $name) . '`';
-fwrite($output, "-- Private BAHABA export. Import into a NEW EMPTY database. Never upload to a website.\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n");
+fwrite($output, "-- Private BAHABA export. Import into a NEW EMPTY database. Never upload to a website.\nSET NAMES utf8mb4;\nSET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\nSET TIME_ZONE='+00:00';\nSET FOREIGN_KEY_CHECKS=0;\n");
 $tables = $pdo->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN);
 $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
 $pdo->beginTransaction();
@@ -17,6 +18,8 @@ try {
     foreach ($tables as $table) {
         $quoted = $identifier($table);
         $definition = $pdo->query('SHOW CREATE TABLE ' . $quoted)->fetch(PDO::FETCH_NUM)[1];
+        // MySQL 8's default collation is unavailable in XAMPP MariaDB.
+        $definition = str_replace('utf8mb4_0900_ai_ci', 'utf8mb4_unicode_ci', $definition);
         fwrite($output, $definition . ";\n");
         $rows = $pdo->query('SELECT * FROM ' . $quoted);
         $count = 0;

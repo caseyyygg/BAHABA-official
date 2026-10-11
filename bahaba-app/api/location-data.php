@@ -13,50 +13,43 @@ if (!$user) {
 }
 
 $locationId = bahaba_normalize_location_id($user['selected_location'] ?? null);
-if (!$locationId) {
-    respond(['error' => 'Your account does not have a supported location. Update it in Settings.'], 403);
-}
+$ids = bahaba_preferred_locations($user);
+$current = (string) ($_GET['current'] ?? '');
+if (bahaba_psgc_by_id($current)) $ids[] = $current;
+$ids = array_values(array_unique($ids));
+$scope = $ids ? implode(',', array_fill(0, count($ids), '?')) : 'NULL';
 
 $reportsStatement = $pdo->prepare(
-    'SELECT id, city, barangay, barangay_feature_id, latitude, longitude, street_name, severity, description, status, photo, created_at
-     FROM reports WHERE location_id = :location_id ORDER BY created_at DESC, id DESC LIMIT 100'
+    "SELECT r.id, p.city, p.province, p.id AS psgc_id, r.barangay, r.barangay_feature_id, r.latitude, r.longitude, r.street_name, r.severity, r.description, r.status, r.photo, r.created_at
+     FROM reports r LEFT JOIN locations l ON l.id=r.location_id JOIN psgc_locations p ON p.id=COALESCE(r.psgc_id,l.psgc_id)
+     WHERE p.id IN ($scope) AND r.status='verified' ORDER BY r.created_at DESC, r.id DESC LIMIT 100"
 );
-$reportsStatement->execute(['location_id' => $locationId]);
+$reportsStatement->execute($ids);
 $announcementsStatement = $pdo->prepare(
-    "SELECT id, city, barangay, title, body, status, created_at
-     FROM announcements WHERE location_id = :location_id AND status = 'published'
-     ORDER BY created_at DESC, id DESC LIMIT 50"
+    "SELECT a.id, p.city, p.province, p.id AS psgc_id, a.barangay, a.title, a.body, a.status, a.created_at
+     FROM announcements a LEFT JOIN locations l ON l.id=a.location_id JOIN psgc_locations p ON p.id=COALESCE(a.psgc_id,l.psgc_id)
+     WHERE p.id IN ($scope) AND a.status = 'published'
+     ORDER BY a.created_at DESC, a.id DESC LIMIT 50"
 );
-$announcementsStatement->execute(['location_id' => $locationId]);
+$announcementsStatement->execute($ids);
 $commandCenterStatement = $pdo->prepare(
     'SELECT name, hotline, telephone, mobile_number, address, email, facebook_page, emergency_contact, other_information, updated_at
      FROM command_centers WHERE location_id = :location_id LIMIT 1'
 );
 $commandCenterStatement->execute(['location_id' => $locationId]);
 $evacuationCentersStatement = $pdo->prepare(
-    'SELECT id, city, barangay, name, address, capacity, evacuees, created_by, created_at
+    'SELECT id, city, barangay, name, address, capacity, evacuees, created_at
      FROM evacuation_centers WHERE location_id = :location_id
      ORDER BY barangay, name, id'
 );
 $evacuationCentersStatement->execute(['location_id' => $locationId]);
 
-$nlpEvents = [];
-if (bahaba_table_exists($pdo, 'nlp_events')) {
-    $nlpStatement = $pdo->prepare(
-        "SELECT id, post_text AS description, severity, city, barangay, detected_at AS created_at,
-                (UNIX_TIMESTAMP(received_at) + 86400) * 1000 AS expires_at_ms
-         FROM nlp_events WHERE location_id = :location_id AND classification = 'Flood'
-           AND received_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-         ORDER BY received_at DESC, id DESC LIMIT 100"
-    );
-    $nlpStatement->execute(['location_id' => $locationId]);
-    $nlpEvents = $nlpStatement->fetchAll();
-}
+// Raw NLP content is administrative until reviewed into a verified report.
 
 respond([
     'selected_location' => $locationId,
     'reports' => $reportsStatement->fetchAll(),
-    'nlp_events' => $nlpEvents,
+    'nlp_events' => [],
     'announcements' => $announcementsStatement->fetchAll(),
     'command_center' => $commandCenterStatement->fetch() ?: null,
     'evacuation_centers' => $evacuationCentersStatement->fetchAll(),

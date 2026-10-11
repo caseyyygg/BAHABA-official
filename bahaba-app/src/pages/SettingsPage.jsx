@@ -1,7 +1,8 @@
+import PasswordInput from '../components/PasswordInput'
 import { Icon } from '../components/Icon'
 import { useState } from 'react'
 
-export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, supportedLocations, onDesiredLocationChange, locationChangeBusy, locationChangeStatus, onSaveProfile }) {
+export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, onSaveProfile }) {
   const [name, setName] = useState(currentUser?.username || '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
@@ -42,31 +43,19 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
           <div>
             <strong>{currentUser?.username || 'John Doe'}</strong>
             <small>{currentUser?.email || 'johndoe@gmail.com'}</small>
-            <small className="profile-location">Desired location: {currentUser?.selected_location_name || 'Choose a supported location'}</small>
+            <small className="profile-location">Preferred locations: {currentUser?.preferred_locations?.length || 0}</small>
             <small className="profile-location">
               {locationSharingEnabled && currentPlace && currentPlace !== 'Finding your place...'
                 ? `Sharing: ${currentPlace}`
                 : locationSharingEnabled
-                  ? 'Finding your place...'
+                  ? 'Current municipality unavailable'
                 : 'Not sharing location'}
             </small>
           </div>
         </div>
 
         <div className="settings-form location-settings-form">
-          <label htmlFor="desired-location">Change Desired Location</label>
-          <select
-            id="desired-location"
-            value={currentUser?.selected_location || ''}
-            onChange={(event) => onDesiredLocationChange(event.target.value)}
-            disabled={locationChangeBusy}
-          >
-            <option value="" disabled>Select a location</option>
-            {supportedLocations.map((location) => (
-              <option key={location.id} value={location.id}>{location.name}</option>
-            ))}
-          </select>
-          {locationChangeStatus && <p className="auth-error">{locationChangeStatus}</p>}
+<button className="manage-preferences-button" type="button" onClick={() => setScreen('preferences')}><span className="manage-preferences-icon"><Icon name="pin" size={21} /></span><span><strong>Manage preferred locations</strong><small>{currentUser?.preferred_locations?.length || 0} locations for flood and LGU updates</small></span><span aria-hidden="true">›</span></button>
         </div>
 
         <div className="settings-list">
@@ -93,7 +82,7 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
             />
           </div>
           <div className="settings-row">
-            <span>Push Notifications</span>
+            <span>Browser Notifications</span>
             <button
               type="button"
               className={`switch ${pushNotificationsEnabled ? 'on' : ''}`}
@@ -116,6 +105,7 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
           </div>
         </div>
 
+        <p className="settings-status">Browser notifications work while BAHABA is open. Delivery after the app is closed is not implemented.</p>
         {(locationStatus || notificationStatus) && (
           <div className="settings-status" role="status" aria-live="polite">
             {locationStatus && <p>{locationStatus}</p>}
@@ -132,12 +122,12 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
             <input id="profile-email" type="email" value={currentUser?.email || ''} readOnly />
             <small>Email cannot be changed.</small>
             <label htmlFor="profile-new-password">New password</label>
-            <input id="profile-new-password" type="password" autoComplete="new-password" placeholder="Leave blank to keep your password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} />
+            <PasswordInput id="profile-new-password"  autoComplete="new-password" placeholder="Leave blank to keep your password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} />
             {password && <>
               <label htmlFor="profile-current-password">Current password</label>
-              <input id="profile-current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+              <PasswordInput id="profile-current-password"  autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
               <label htmlFor="profile-confirm-password">Confirm new password</label>
-              <input id="profile-confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={8} required />
+              <PasswordInput id="profile-confirm-password"  autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={8} required />
             </>}
           </fieldset>
           {profileStatus && <p className="settings-status" role="status">{profileStatus}</p>}

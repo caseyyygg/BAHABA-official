@@ -217,7 +217,7 @@ export default function CommandPage({ selectedCity, reports = [], nlpEvents = []
             <span className="cc-pill-ic blue"><Glyph name="waves" /></span>
             <h2 className="cc-title">Flood reports · {locationReports.length}</h2>
             <span className={`cc-badge ${!locationReports.length ? 'ok' : hasHighReport ? 'danger' : 'warn'}`}>
-              {!locationReports.length ? 'All clear' : hasHighReport ? 'High risk' : 'Monitoring'}
+              {!locationReports.length ? 'No reports available' : hasHighReport ? 'High risk' : 'Monitoring'}
             </span>
           </div>
 

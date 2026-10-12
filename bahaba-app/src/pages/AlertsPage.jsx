@@ -1,4 +1,7 @@
+import { CurrentAdvisoriesCard, FloodReportsCard } from '../components/ReportCards'
+import FloodLevelGuide from '../components/FloodLevelGuide'
 import { BrandMark, Icon } from '../components/Icon'
+import LocationScopeSelect from '../components/LocationScopeSelect'
 
 /* ---------- small local glyphs (no dependency on the shared Icon set) ---------- */
 function Glyph({ name, size = 20 }) {
@@ -48,7 +51,11 @@ function Glyph({ name, size = 20 }) {
   }
 }
 
-const isHigh = (item) => String(item?.severity).toLowerCase() === 'high'
+const severityRank = { low: 1, medium: 2, moderate: 2, high: 3 }
+const severityOf = (item) => {
+  const severity = String(item?.severity || '').toLowerCase()
+  return severity === 'moderate' ? 'medium' : severity
+}
 
 const formatBarangay = (name) => {
   if (!name) return ''
@@ -57,24 +64,30 @@ const formatBarangay = (name) => {
 }
 
 export default function AlertsPage({
-  currentUser,
   selectedCity,
+  availableLocations = [],
+  selectedLocationId,
+  onLocationChange,
   reports = [],
   nlpEvents = [],
   announcements = [],
-  commandCenter,
   navigation,
   activeNav,
   setActiveNav,
   setScreen,
-  onRefresh,
-  refreshing = false,
 }) {
-  const cityLabel = 'your preferred and current locations'
+  const cityLabel = selectedCity || 'your selected location'
   const floodItems = [...reports, ...nlpEvents]
-  const highItems = floodItems.filter(isHigh)
+  const sortedItems = [...floodItems].sort((a, b) => (severityRank[severityOf(b)] || 0) - (severityRank[severityOf(a)] || 0))
+  const highestSeverity = severityOf(sortedItems[0])
+  const highItems = floodItems.filter(item => severityOf(item) === 'high')
   const hasHigh = highItems.length > 0
-  const riskLevel = hasHigh ? 'high' : floodItems.length ? 'monitor' : 'none'
+  const riskLevel = highestSeverity || 'none'
+  const advice = {
+    high: ['Move to higher ground or evacuate when local officials direct you.', 'Avoid walking or driving through floodwater; use only confirmed safe routes.', 'Keep your phone charged and contact emergency services if anyone is in immediate danger.'],
+    medium: ['Prepare to evacuate: pack medicines, documents, water, and essentials.', 'Charge phones and power banks; conserve battery and electricity.', 'Move appliances and valuables above expected water level and check on people who may need help.'],
+    low: ['Charge your phone and power bank, and save battery and electricity.', 'Prepare an evacuation bag with medicines, water, and important documents.', 'Monitor official updates and avoid flooded roads and waterways.'],
+  }
 
   let heroTitle
   let heroText
@@ -102,12 +115,6 @@ export default function AlertsPage({
     heroText = 'No reports does not confirm absence of flooding. Some LGUs do not supply data.'
   }
 
-  const contacts = [
-    { label: 'Hotline', value: commandCenter?.hotline, tone: 'red', glyph: 'handset' },
-    { label: 'Telephone', value: commandCenter?.telephone, tone: 'blue', glyph: 'telephone' },
-    { label: 'Mobile', value: commandCenter?.mobile_number, tone: 'amber', glyph: 'mobile' },
-  ]
-
   return (
     <div className="phone-screen alerts-screen">
       <div className="statusbar">
@@ -119,11 +126,15 @@ export default function AlertsPage({
         </div>
       </div>
 
-      <header className="top-banner alert-banner">
-        <div className="logo-inline al-brand">
+      <header className="top-banner command-banner">
+        <div className="logo-inline cc-brand">
           <BrandMark />
-          <h1 className="al-hello">Good day, {currentUser ? currentUser.username : 'John'}</h1>
+          <div className="cc-brand-text">
+            <h1 className="cc-brand-title">Alerts</h1>
+            <small>Flood &amp; Safety Updates</small>
+          </div>
         </div>
+        {selectedCity && <LocationScopeSelect locations={availableLocations} value={selectedLocationId} onChange={onLocationChange} label="Choose location for alerts" className="cc-location-scope" />}
       </header>
 
       <main className="al-body">
@@ -138,82 +149,17 @@ export default function AlertsPage({
           </div>
         </section>
 
-        {/* Emergency contacts */}
-        <section className="al-section" aria-labelledby="al-contacts-title">
-          <div className="al-section-head">
-            <h2 className="al-eyebrow" id="al-contacts-title">Emergency contacts</h2>
-            {onRefresh && (
-              <button type="button" className="al-refresh" onClick={onRefresh} disabled={refreshing}>
-                {refreshing ? 'Refreshing…' : 'Refresh'}
-              </button>
-            )}
-          </div>
-
-          {selectedCity && (
-            <div className="al-chips">
-              <span className="al-chip active">{selectedCity}</span>
-            </div>
-          )}
-          <p className="al-hint">Based on your selected location/s</p>
-
-          <ul className="al-contact-list">
-            {contacts.map(({ label, value, tone, glyph }) => (
-              <li className="al-contact" key={label}>
-                <span className={`al-tile ${tone}`}><Glyph name={glyph} size={18} /></span>
-                <div className="al-contact-info">
-                  <strong>{label}</strong>
-                  <small>{value || 'Not provided yet'}</small>
-                </div>
-                {value ? (
-                  <a className="al-call" href={`tel:${String(value).replace(/[^\d+]/g, '')}`} aria-label={`Call ${label}: ${value}`}>
-                    <Glyph name="handset" size={13} /> Call
-                  </a>
-                ) : (
-                  <span className="badge muted">Not set</span>
-                )}
-              </li>
-            ))}
-          </ul>
-
-          {commandCenter?.address && <p className="al-address">{commandCenter.address}</p>}
+        <section className={`al-safety-advice ${riskLevel}`} aria-live="polite">
+          <div className="al-safety-head"><span className="al-safety-pulse" aria-hidden="true" /><div><strong>{highestSeverity ? `${highestSeverity === 'medium' ? 'Moderate' : highestSeverity[0].toUpperCase() + highestSeverity.slice(1)} flood readiness` : 'Flood readiness'}</strong><small>{floodItems.length ? `Based on ${floodItems.length} current report${floodItems.length === 1 ? '' : 's'} for ${cityLabel}.` : `No verified flood reports for ${cityLabel}; stay prepared.`}</small></div></div>
+          <ul>{(advice[highestSeverity] || ['Keep your phone charged and prepare essential items.', 'Follow official local advisories and check on people who may need assistance.', 'No reports do not confirm that flooding is absent.']).map(item => <li key={item}>{item}</li>)}</ul>
         </section>
 
         {/* Advisories + recent flood reports */}
-        <section className="al-card" aria-label="Advisories">
-          <div className="al-row">
-            <span className={`al-tile ${announcements.length ? 'amber' : 'green'}`}><Icon name="alerts" size={18} /></span>
-            <div className="al-contact-info">
-              <strong>Current advisories</strong>
-              <small>{announcements.length ? `${announcements.length} published` : 'Nothing issued'}</small>
-            </div>
-            <span className={`badge ${announcements.length ? 'warn' : 'ok'}`}>{announcements.length ? 'Active' : 'No advisories available'}</span>
-          </div>
-          {announcements.slice(0, 3).map((announcement) => (
-            <div className="al-row al-row-text" key={announcement.id}><span>{announcement.title}<small>{[announcement.city, announcement.province, announcement.barangay].filter(Boolean).join(', ')}</small></span></div>
-          ))}
-        </section>
+        <CurrentAdvisoriesCard selectedCity={selectedCity} announcements={announcements} />
+        <FloodLevelGuide />
 
-        {floodItems.length > 0 && (
-          <section className="al-card" aria-label="Flood reports">
-            <h3 className="al-card-title">Flood reports</h3>
-            {floodItems.slice(0, 5).map((item, index) => (
-              <div className="al-row al-row-text" key={`${item.id || item.created_at}-${item.barangay || ''}-${index}`}>
-                <span>{[item.barangay, item.city, item.province].filter(Boolean).join(', ')}</span>
-                <span className={`risk-tag ${isHigh(item) ? 'red' : 'amber'}`}>{item.severity || 'Report'}</span>
-              </div>
-            ))}
-          </section>
-        )}
+        <FloodReportsCard selectedCity={selectedCity} reports={reports} nlpEvents={nlpEvents} />
 
-        {/* National emergency */}
-        <section className="al-national" aria-label="National emergency">
-          <span className="al-tile red solid"><Glyph name="handset" size={18} /></span>
-          <div className="al-contact-info">
-            <strong>National Emergency</strong>
-            <small>All emergencies nationwide</small>
-          </div>
-          <a className="al-911" href="tel:911" aria-label="Call National Emergency 911">911</a>
-        </section>
       </main>
 
       <nav className="bottom-nav" aria-label="Primary">

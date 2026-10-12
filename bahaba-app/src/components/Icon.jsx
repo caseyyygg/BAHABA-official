@@ -82,11 +82,8 @@ export function Icon({ name, size = 18, className }) {
 
 export function BrandMark({ className = 'mini-mark' }) {
   return (
-    <span className={className} aria-hidden="true">
-      <svg viewBox="0 0 48 48" fill="none">
-        <path d="M24 7c-5.8 7.2-11 13.3-11 20a11 11 0 0 0 22 0c0-6.7-5.2-12.8-11-20Z" />
-        <path d="M17.5 28.5c2.3-1.5 4.7-1.5 7 0s4.7 1.5 7 0" />
-      </svg>
+    <span className={`${className} bahaba-brand-image`} aria-hidden="true">
+      <img src={`${import.meta.env.BASE_URL}bahaba-logo.jpg`} alt="" />
     </span>
   )
 }

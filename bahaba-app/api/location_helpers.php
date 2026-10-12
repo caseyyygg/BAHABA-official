@@ -168,6 +168,12 @@ function bahaba_ensure_location_schema(PDO $pdo): void
         $markMigration->execute(['version' => $version]);
     }
 
+    if (bahaba_table_exists($pdo, 'announcements')) {
+        bahaba_ensure_column($pdo, 'announcements', 'duration_hours', 'SMALLINT UNSIGNED NOT NULL DEFAULT 24');
+        bahaba_ensure_column($pdo, 'announcements', 'expires_at', 'DATETIME NULL');
+        $pdo->exec("UPDATE announcements SET expires_at = DATE_ADD(created_at, INTERVAL duration_hours HOUR) WHERE status = 'published' AND expires_at IS NULL");
+    }
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS command_centers (
         location_id VARCHAR(32) PRIMARY KEY,
         name VARCHAR(255) NOT NULL DEFAULT '',
@@ -199,6 +205,7 @@ function bahaba_ensure_location_schema(PDO $pdo): void
         CONSTRAINT fk_evacuation_centers_location FOREIGN KEY (location_id) REFERENCES locations (id) ON UPDATE CASCADE ON DELETE CASCADE
     )");
     bahaba_ensure_column($pdo, 'evacuation_centers', 'created_by_admin_id', 'BIGINT UNSIGNED NULL');
+    bahaba_ensure_column($pdo, 'evacuation_centers', 'map_link', "VARCHAR(1000) NOT NULL DEFAULT ''");
 
     if (!$hasMigration('location_access_command_centers_v1')) {
         bahaba_ensure_location_foreign_key($pdo, 'command_centers', 'location_id', 'CASCADE');

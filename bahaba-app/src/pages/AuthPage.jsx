@@ -107,7 +107,7 @@ export default function AuthPage({
       <div className="top-banner">
         <div className="logo-inline">
           <BrandMark />
-          <span>BAHABA</span>
+          <span>BANTALA</span>
         </div>
         <small>Create your account</small>
       </div>

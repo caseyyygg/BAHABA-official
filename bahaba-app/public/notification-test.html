@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BAHABA notification check</title>
+<title>BANTALA notification check</title>
 <style>
 body{font:16px system-ui;background:#101d2c;color:#eef5ff;max-width:640px;margin:40px auto;padding:20px}button{font:inherit;padding:12px 18px;border:0;border-radius:8px;background:#3b82f6;color:white;cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#20334b;padding:16px;border-radius:8px;line-height:1.6}a{color:#93c5fd}
 </style>
@@ -11,7 +11,7 @@ body{font:16px system-ui;background:#101d2c;color:#eef5ff;max-width:640px;margin
 <button id="test">Send test</button>
 <pre id="result" role="status" aria-live="polite"></pre>
 <p>A successful browser request does not confirm a Windows banner appeared. If the browser accepts it but you see nothing, check Windows Settings → System → Notifications, including your browser’s banners, and turn Do Not Disturb off.</p>
-<p><a href="/">Back to BAHABA</a></p>
+<p><a href="/">Back to BANTALA</a></p>
 <script type="module">
 import { notificationRegistration, showBahabaNotification, withNotificationTimeout as bounded } from './notification-client.js'
 const output = document.getElementById('result')
@@ -37,7 +37,7 @@ button.addEventListener('click', async () => {
     const registration = await notificationRegistration()
     log('Worker state: ' + registration.active?.state)
     log('Sending notification...')
-    await showBahabaNotification('BAHABA notification test',{
+    await showBahabaNotification('BANTALA notification test',{
       body:'If you can see this, browser notifications are working.',
       tag:'bahaba-check-'+Date.now(), requireInteraction:true, silent:false,
     },registration)

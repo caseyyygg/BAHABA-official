@@ -1,73 +1,61 @@
-# Cloudflare Pages + alwaysdata
+# BANTALA hosting bundle
 
-Prepared locally; this is not a completed deployment.
+Cloudflare Pages serves the resident app at `/` and the admin at `/admin/`.
+The included Worker proxies `/api/*` and `/admin-api.php` to the Render PHP API,
+keeping browser cookies on the Pages hostname. The database remains MariaDB on
+Alwaysdata, so Render's temporary filesystem is not used for application data.
 
-Cloudflare serves the resident app at `/` and the admin at `/admin/`.
-The included Worker proxies `/api/*` and `/admin-api.php` to the PHP host,
-so browser login cookies stay on the Cloudflare hostname. Static files bypass
-the Worker; API requests count toward the Pages Functions / Workers free quota.
+## Prepare the Pages upload
 
-## Build
-
-From the repository root:
+From the repository root, pass the current admin source directory:
 
 ```powershell
 node deploy/cloudflare/prepare.mjs C:/Users/Jakes/Downloads/BAHABA-ADMIN
 ```
 
-Outputs are in `deploy/cloudflare/output/`. Neither output includes existing
-credentials, user data, database exports, account seeds, or NLP model weights.
-Use this dedicated preparation command instead of uploading the project folder.
+The script outputs `deploy/cloudflare/output/pages` and `output/php-host`.
+Never upload SQL exports, local config files, credentials, or the NLP service's
+`.env`, `.state`, model cache, or virtual environment.
 
-## PHP and SQL host
+## Configure Cloudflare
 
-1. Register at https://www.alwaysdata.com/en/ and select the Free plan.
-   It allows noncommercial use, 1 GB shared by files/mail/databases, 256 MB RAM,
-   and an alwaysdata.net address. Background services are unavailable on Free.
-2. Create a MariaDB database and dedicated database user. Import `api/schema.sql`
-   for a new empty installation. Migrating existing accounts/reports requires a
-   private export of the existing shared database; the schema alone has no data.
-3. Upload the contents of `output/php-host/` into the PHP site's document root.
-   Choose a current compatible PHP version with PDO MySQL.
-4. Create `api/config.php` privately from `api/config.example.php`. Use the
-   database host shown in alwaysdata (typically mysql-ACCOUNT.alwaysdata.net),
-   database name, username, and password. Both APIs use this same configuration.
-5. Set `api_url` to `https://YOUR-PROJECT.pages.dev/api`, and `app_url` and
-   `frontend_origin` to `https://YOUR-PROJECT.pages.dev`. Configure SMTP privately
-   and generate a fresh ingestion secret. Install dependencies with
-   `composer install --no-dev --working-dir=api` on the host for email features.
-6. Enable HTTPS. Verify direct access to `/api/config.php`, `/api/schema.sql`,
-   and composer files is denied. Do not upload local config.php or test seeds.
+Create a Pages project in the Cloudflare dashboard and upload the contents of
+`output/pages` (or connect the repository and configure the equivalent build).
+Set the Pages Worker secret `BACKEND_ORIGIN` to the Render API origin, without
+a path, for example `https://bantala-api.onrender.com`. The frontend API path
+stays `/api`.
 
-The free plan cannot run the existing NLP/browser collector service. Its model
-weights alone exceed this plan's disk quota. Keep that service separately hosted;
-the hosted admin's current localhost NLP health check will need a separate migration.
-Admin account provisioning and migration of existing data remain separate steps.
+## Configure the database
 
-## Cloudflare deployment
+Create a new MariaDB database and dedicated user in Alwaysdata. Configure
+`DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` privately in the Render
+service. Use the DB host shown in Alwaysdata (commonly
+`mysql-ACCOUNT.alwaysdata.net`). Keep the existing database untouched until
+the imported copy has been checked.
 
-Sign into your own Cloudflare account locally:
+For the data migration, export a fresh SQL dump from the current database and
+import it into the newly created database through Alwaysdata's private database
+tools. The local transfer folder has an older SQL snapshot; it may not contain
+changes made after that export. Do not commit the dump to Git or place it in a
+public web directory. Verify table and account counts privately before changing
+the live app over.
 
-```powershell
-npx wrangler login
-npx wrangler pages project create bahaba --production-branch main
-npx wrangler pages deploy deploy/cloudflare/output/pages --project-name bahaba
-```
+Set Render `PUBLIC_APP_URL` to the Cloudflare Pages hostname. Generate new random
+values for `NLP_INGEST_TOKEN` and `NLP_SERVICE_TOKEN`; set SMTP values privately
+if verification and password-reset email should work. Leave NLP/browser service
+URLs empty until a compatible service is deployed.
 
-If the project name is taken, choose another name and use its returned hostname
-in the PHP configuration. In Workers & Pages > project > Settings > Variables
-and Secrets, set production `BACKEND_ORIGIN=https://ACCOUNT.alwaysdata.net`
-(no path). Redeploy after configuring it. Leave VITE_API_URL as `/api`.
-Do not upload SQL passwords or SMTP credentials to Cloudflare frontend variables.
+## Render free-tier limits
 
-Before sharing: verify resident login/logout, admin login and role restrictions,
-profile persistence, map data, email verification links, and shared database data.
-The proxy returns 503 until BACKEND_ORIGIN is configured. Live login cannot be
-verified until the host, database, credentials, and deployment exist.
+The Render PHP API blueprint is in `render.yaml`. Free web services sleep after
+inactivity, so the first request can be delayed. Their local filesystem is
+ephemeral. Do not store the database or social browser sessions on Render.
+The current NLP service depends on PyTorch/Transformers and browser tooling; a
+512 MB free Render instance is not a dependable place to run its model or
+continuous collectors. Use an always-on service with enough memory and durable
+session storage for those features. The main app can still use the persistent
+Alwaysdata database while collection is offline.
 
-Official references:
-- https://developers.cloudflare.com/pages/platform/limits/
-- https://developers.cloudflare.com/pages/functions/advanced-mode/
-- https://developers.cloudflare.com/pages/get-started/direct-upload/
-- https://help.alwaysdata.com/en/docs/admin-billing/billing/public-cloud-prices/
-- https://help.alwaysdata.com/en/docs/web-hosting/databases/mariadb/
+Alwaysdata Free is intended for noncommercial use and has a small shared quota.
+Keep database backups and monitor storage. Confirm the current account limits
+and allowed use in the Alwaysdata dashboard before launch.

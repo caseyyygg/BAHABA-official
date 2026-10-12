@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS announcements (
   title VARCHAR(255) NOT NULL,
   body TEXT NOT NULL,
   status ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
+  duration_hours SMALLINT UNSIGNED NOT NULL DEFAULT 24,
+  expires_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

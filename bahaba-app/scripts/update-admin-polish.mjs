@@ -1,0 +1,16 @@
+import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const admin = resolve(process.argv[2]);
+const appPath = resolve(admin, 'App.js');
+let app = readFileSync(appPath, 'utf8');
+app = app.split('\n').filter(line => !(line.includes('manageReport(${r.id}') && (line.includes('Hide from map') || line.includes('Delete report')))).join('\n');
+writeFileSync(appPath, app);
+copyFileSync(resolve(import.meta.dirname, 'admin-polish.css'), resolve(admin, 'admin-polish.css'));
+copyFileSync(resolve(import.meta.dirname, '../public/bahaba-logo.jpg'), resolve(admin, 'bahaba-logo.jpg'));
+const htmlPath = resolve(admin, 'index.html');
+let html = readFileSync(htmlPath, 'utf8');
+if (!html.includes('rel="icon"')) html = html.replace('</head>', '<link rel="icon" href="bahaba-logo.jpg?v=bahaba">\n<link rel="apple-touch-icon" href="bahaba-logo.jpg">\n</head>');
+if (!html.includes('href="admin-polish.css')) html = html.replace('</head>', '<link rel="stylesheet" href="admin-polish.css?v=20261012">\n</head>');
+html = html.replace(/src="App\.js(?:\?[^"\s]*)?"/g, 'src="App.js?v=20261012-approval-ui"');
+writeFileSync(htmlPath, html);
+console.log('Updated approval actions and admin styling.');

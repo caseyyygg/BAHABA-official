@@ -9,7 +9,7 @@ async function request(endpoint, options = {}) {
       headers: { 'Content-Type': 'application/json', ...options.headers },
     })
   } catch {
-    throw new Error('Cannot reach the BAHABA API. Make sure the PHP API server is running and VITE_API_URL is configured correctly.')
+    throw new Error('Cannot reach the BANTALA API. Make sure the PHP API server is running and VITE_API_URL is configured correctly.')
   }
 
   const responseText = await response.text()
@@ -18,14 +18,14 @@ async function request(endpoint, options = {}) {
     payload = JSON.parse(responseText)
   } catch {
     if (response.ok) {
-      throw new Error('The BAHABA API returned an invalid response. Check the API server logs.')
+      throw new Error('The BANTALA API returned an invalid response. Check the API server logs.')
     }
   }
 
   if (!response.ok) {
     const error = new Error(
       payload.error
-      || `The BAHABA API returned HTTP ${response.status}. Check that the PHP API server is running and review its logs.`,
+      || `The BANTALA API returned HTTP ${response.status}. Check that the PHP API server is running and review its logs.`,
     )
     error.needsVerification = payload.needsVerification
     throw error
@@ -40,7 +40,7 @@ export const checkVerification = () => request('me.php')
 export const logout = () => request('logout.php', { method: 'POST' })
 export const getProfile = () => request('profile.php')
 export const updateProfile = (data) => request('profile.php', { method: 'PUT', body: JSON.stringify(data) })
-export const getLocationData = (current = '') => request(`location-data.php?${new URLSearchParams(current ? { current } : {})}`, { cache: 'no-store' })
+export const getLocationData = (current = '', location = '') => request(`location-data.php?${new URLSearchParams({ ...(current ? { current } : {}), ...(location ? { location } : {}) })}`, { cache: 'no-store' })
 export const getNotificationEvents = (after, current = '') => request(`notifications.php?${new URLSearchParams({ ...(after === null ? {} : { after }), ...(current ? { current } : {}) })}`, { cache: 'no-store' })
 export const getMapReports = (params = {}) => request(`map-reports.php?${new URLSearchParams(params)}`, { cache: 'no-store' })
 export const resolveCurrentLocation = ({ latitude, longitude, accuracy }) => request(`resolve-location.php?${new URLSearchParams({ latitude, longitude, accuracy })}`)

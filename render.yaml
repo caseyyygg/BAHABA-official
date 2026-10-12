@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: bantala-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/render-api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz.php
+    envVars:
+      - key: DB_HOST
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: NLP_INGEST_TOKEN
+        sync: false
+      - key: NLP_SERVICE_URL
+        sync: false
+      - key: NLP_SERVICE_TOKEN
+        sync: false
+      - key: SOCIAL_BROWSER_URL
+        sync: false
+      - key: SOCIAL_BROWSER_TOKEN
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false

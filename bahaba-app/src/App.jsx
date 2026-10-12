@@ -1,9 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useSavedSetting } from './useSavedSetting'
 import { notificationRegistration, showBahabaNotification, withNotificationTimeout } from './notifications'
 import './App.css'
 import SplashPage from './pages/SplashPage'
+import RisingFloodTransition from './components/RisingFloodTransition'
 import AuthPage from './pages/AuthPage'
 import ForgotPassword from './components/ForgotPassword'
 import AlertsPage from './pages/AlertsPage'
@@ -23,6 +24,10 @@ import {
 } from './api'
 import { locationById, supportedLocations, completedPreferences } from './locations'
 const NationwideMap = lazy(() => import('./pages/NationwideMap'))
+const preferredStartLocation = (user) => {
+  const preferred = Array.isArray(user?.preferred_locations) ? user.preferred_locations : []
+  return preferred.includes(user?.selected_location) ? user.selected_location : preferred[0] || user?.selected_location || ''
+}
 
 const getPlaceName = async ({ latitude, longitude }) => {
   const response = await fetch(
@@ -81,12 +86,15 @@ const emptySignup = {
 
 function App() {
   const [screen, setScreen] = useState('splash')
+  const [sessionChecked, setSessionChecked] = useState(false)
+  const [loginTransitionActive, setLoginTransitionActive] = useState(false)
+  const [loginTransitionRevealed, setLoginTransitionRevealed] = useState(false)
   const [signupForm, setSignupForm] = useState(emptySignup)
   const [loginForm, setLoginForm] = useState({
     email: '',
     password: '',
   })
-  const [selectedCity, setSelectedCity] = useState('')
+  const [activeLocationId, setActiveLocationId] = useState('')
   const [activeNav, setActiveNav] = useState('alerts')
   const [darkMode, setDarkMode] = useSavedSetting('bahaba_dark_mode', false)
   const [floodAlertsEnabled, setFloodAlertsEnabled] = useSavedSetting('bahaba_flood_alerts', true)
@@ -125,12 +133,16 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [signupLocationBusy, setSignupLocationBusy] = useState(false)
   const [signupLocationNotice, setSignupLocationNotice] = useState(null)
+  const revealLoginTransition = useCallback(() => setLoginTransitionRevealed(true), [])
+  const finishLoginTransition = useCallback(() => setLoginTransitionActive(false), [])
 
   // Session persistence
   useEffect(() => {
     // Check for saved session on app load
     const savedUser = localStorage.getItem('bahaba_app_user')
     const sessionExpiry = localStorage.getItem('bahaba_app_session_expiry')
+    let active = true
+    const finishSessionCheck = () => { if (active) setSessionChecked(true) }
 
     if (
       savedUser &&
@@ -140,17 +152,17 @@ function App() {
       getProfile()
         .then(({ user }) => {
           setCurrentUser(user)
-          setSelectedCity(
-            locationById(user.selected_location)?.city || user.city || '',
-          )
+          setActiveLocationId(preferredStartLocation(user))
           // Returning sessions use the locations already stored on the account.
           setScreen('map')
           saveUserSession(user)
         })
         .catch(() => clearUserSession())
+        .finally(finishSessionCheck)
     } else {
       localStorage.removeItem('bahaba_app_user')
       localStorage.removeItem('bahaba_app_session_expiry')
+      finishSessionCheck()
     }
 
     // Check for verification link in URL
@@ -158,7 +170,23 @@ function App() {
       window.history.replaceState({}, document.title, window.location.pathname)
       setScreen('verify')
     }
+    return () => { active = false }
   }, [])
+
+  const preferredLocationIds = useMemo(() => Array.isArray(currentUser?.preferred_locations) ? currentUser.preferred_locations : [], [currentUser?.preferred_locations])
+  const availableLocationIds = useMemo(() => [...new Set([
+    ...preferredLocationIds,
+    ...(!preferredLocationIds.length && currentUser?.selected_location ? [currentUser.selected_location] : []),
+    ...(currentPsgc ? [currentPsgc] : []),
+  ])], [preferredLocationIds, currentUser?.selected_location, currentPsgc])
+  const fallbackLocationId = preferredStartLocation(currentUser)
+  const selectedLocationId = availableLocationIds.includes(activeLocationId) ? activeLocationId : fallbackLocationId || currentPsgc
+  const selectedCity = locationById(selectedLocationId)?.city || currentUser?.city || ''
+
+  useEffect(() => {
+    if (!currentUser?.id) return
+    setActiveLocationId(current => availableLocationIds.includes(current) ? current : fallbackLocationId || currentPsgc || '')
+  }, [currentUser?.id, availableLocationIds, fallbackLocationId, currentPsgc])
 
   const notificationScope = `${currentUser?.id || ''}:${currentUser?.preferences_updated_at || ''}:${(currentUser?.preferred_locations || []).join(',')}`
   useEffect(() => {
@@ -176,7 +204,7 @@ function App() {
         cursor = data.cursor
         const events = data.events.filter(e => e.kind !== 'flood' || notificationPreferences.current.flood)
         if (!events.length) return
-        const title = events.length === 1 ? `BAHABA: ${events[0].title}` : `BAHABA: ${events.length} new alerts`
+        const title = events.length === 1 ? `BANTALA: ${events[0].title}` : `BANTALA: ${events.length} new alerts`
         const body = events.map(e => [e.city, e.province, e.barangay, e.title].filter(Boolean).join(', ')).join(' · ')
         setAlertBanner({ title, body, isTest: false })
         if (notificationPreferences.current.push && 'Notification' in window && Notification.permission === 'granted') {
@@ -198,11 +226,11 @@ function App() {
   useEffect(() => {
     if (!currentUser?.id) return
     let cancelled = false
-    const refresh = () => getLocationData(currentPsgc).then(data => { if (!cancelled) setLocationData(data) }).catch(() => {})
+    const refresh = () => getLocationData(currentPsgc, selectedLocationId).then(data => { if (!cancelled) setLocationData(data) }).catch(() => {})
     refresh()
     const timer = window.setInterval(refresh, 10000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [notificationScope, currentUser?.id, currentPsgc])
+  }, [notificationScope, currentUser?.id, currentPsgc, selectedLocationId])
 
   // Keep the bottom-nav highlight in sync with whichever tab screen is showing
   useEffect(() => {
@@ -216,7 +244,7 @@ function App() {
     if (!currentUser?.id || locationRefreshing) return
     setLocationRefreshing(true)
     try {
-      setLocationData(await getLocationData(currentPsgc))
+      setLocationData(await getLocationData(currentPsgc, selectedLocationId))
     } catch (error) {
       console.warn('Could not refresh location data:', error.message)
     } finally {
@@ -342,11 +370,9 @@ function App() {
       const result = await login(loginForm)
       setCurrentUser(result.user)
       saveUserSession(result.user)
-      setSelectedCity(
-        locationById(result.user.selected_location)?.city ||
-          result.user.city ||
-          '',
-      )
+      setActiveLocationId(preferredStartLocation(result.user))
+      setLoginTransitionRevealed(false)
+      setLoginTransitionActive(true)
       // Location onboarding belongs to account activation, not every login.
       setScreen('map')
     } catch (error) {
@@ -364,11 +390,7 @@ function App() {
       const result = await checkVerification()
       setCurrentUser(result.user)
       saveUserSession(result.user)
-      setSelectedCity(
-        locationById(result.user.selected_location)?.city ||
-          result.user.city ||
-          '',
-      )
+      setActiveLocationId(preferredStartLocation(result.user))
       setScreen(completedPreferences(result.user) ? 'map' : 'preferences')
     } catch (error) {
       setAuthError(error.message)
@@ -464,9 +486,9 @@ function App() {
     }
 
     setNotificationStatus('Starting notification test…')
-    setAlertBanner({ title: 'Test notification', body: 'This is how flood alerts will appear in BAHABA.', isTest: true })
+    setAlertBanner({ title: 'Test notification', body: 'This is how flood alerts will appear in BANTALA.', isTest: true })
     if (!window.isSecureContext) {
-      setNotificationStatus('Notifications require HTTPS or localhost. Open BAHABA using a secure address.')
+      setNotificationStatus('Notifications require HTTPS or localhost. Open BANTALA using a secure address.')
       return
     }
 
@@ -491,13 +513,13 @@ function App() {
       setNotificationStatus('Permission granted. Starting notification worker…')
       const registration = await notificationRegistration()
       setNotificationStatus('Worker ready. Asking Chrome to display the notification…')
-      await showBahabaNotification('BAHABA alerts enabled', {
-        body: 'This is a test notification. Keep BAHABA open to receive new LGU flood alerts.',
+      await showBahabaNotification('BANTALA alerts enabled', {
+        body: 'This is a test notification. Keep BANTALA open to receive new LGU flood alerts.',
         tag: `bahaba-notification-test-${Date.now()}`,
       }, registration)
       setPushNotificationsEnabled(true)
       const visible = await withNotificationTimeout(registration.getNotifications(), 'Reading active notifications')
-      setNotificationStatus(visible.length > 0 ? 'Test sent. Keep BAHABA open to receive new flood alerts.' : 'Test sent. Check your notification center if no banner appeared.')
+      setNotificationStatus(visible.length > 0 ? 'Test sent. Keep BANTALA open to receive new flood alerts.' : 'Test sent. Check your notification center if no banner appeared.')
     } catch (error) {
       setPushNotificationsEnabled(false)
       setNotificationStatus(
@@ -513,6 +535,7 @@ function App() {
           <SplashPage
             onGetStarted={() => setScreen('signup')}
             onLogin={() => setScreen('login')}
+            transitionEnabled={sessionChecked && !currentUser}
           />
         )
 
@@ -591,7 +614,7 @@ function App() {
         /></div>
 
       case 'map':
-        return <Suspense fallback={<div className="phone-screen">Loading nationwide map…</div>}><NationwideMap currentPsgc={currentPsgc} preferred={currentUser?.preferred_locations || []}
+        return <Suspense fallback={<div className="phone-screen">Loading nationwide map…</div>}><NationwideMap currentPsgc={currentPsgc} currentLocation={currentLocation} locationSharingEnabled={locationSharingEnabled} preferred={currentUser?.preferred_locations || []}
           navigation={navigation} setScreen={setScreen} /></Suspense>
 
       case 'alerts':
@@ -599,16 +622,16 @@ function App() {
           <AlertsPage
             currentUser={currentUser}
             selectedCity={selectedCity}
+            availableLocations={availableLocationIds}
+            selectedLocationId={selectedLocationId}
+            onLocationChange={setActiveLocationId}
             reports={locationData.reports}
             nlpEvents={locationData.nlp_events}
             announcements={locationData.announcements}
-            commandCenter={locationData.command_center}
             navigation={navigation}
             activeNav={activeNav}
             setActiveNav={setActiveNav}
             setScreen={setScreen}
-            onRefresh={handleRefreshLocationData}
-            refreshing={locationRefreshing}
           />
         )
 
@@ -616,10 +639,15 @@ function App() {
         return (
           <CommandPage
             selectedCity={selectedCity}
+            availableLocations={availableLocationIds}
+            selectedLocationId={selectedLocationId}
+            onLocationChange={setActiveLocationId}
             reports={locationData.reports}
             nlpEvents={locationData.nlp_events}
             announcements={locationData.announcements}
             commandCenter={locationData.command_center}
+            onRefresh={handleRefreshLocationData}
+            refreshing={locationRefreshing}
             evacuationCenters={locationData.evacuation_centers}
             navigation={navigation}
             activeNav={activeNav}
@@ -660,10 +688,15 @@ function App() {
   }
 
   return (
-    <div ref={appShellRef} className={`app-shell ${darkMode ? 'theme-dark' : ''}`}>
+    <div ref={appShellRef} className={`app-shell ${darkMode ? 'theme-dark' : ''}${loginTransitionActive && !loginTransitionRevealed ? ' login-transition-pending' : ''}`}>
       {renderScreen()}
+      <RisingFloodTransition
+        enabled={loginTransitionActive}
+        onReveal={revealLoginTransition}
+        onComplete={finishLoginTransition}
+      />
       {alertBanner && notificationHost && createPortal(
-        <aside className="in-app-alert" aria-label="BAHABA notification">
+        <aside className="in-app-alert" aria-label="BANTALA notification">
           <div role="status" aria-live="polite" aria-atomic="true">
             <strong>{alertBanner.title}</strong>
             <p>{alertBanner.body}</p>

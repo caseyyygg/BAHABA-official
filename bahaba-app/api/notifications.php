@@ -25,7 +25,7 @@ $stmt = $pdo->prepare("SELECT e.* FROM resident_notification_events e
     LEFT JOIN reports r ON e.kind='flood' AND r.id=e.record_id
     LEFT JOIN announcements a ON e.kind='advisory' AND a.id=e.record_id
     WHERE e.id > ? AND e.id <= ? AND e.psgc_id IN ($placeholders)
-      AND ((e.kind='flood' AND r.status='verified') OR (e.kind='advisory' AND a.status='published'))
+      AND ((e.kind='flood' AND r.status='verified') OR (e.kind='advisory' AND a.status='published' AND a.expires_at > NOW()))
     ORDER BY e.id LIMIT 200");
 $stmt->execute(array_merge([$after, $latest], $ids));
 $events = $stmt->fetchAll();

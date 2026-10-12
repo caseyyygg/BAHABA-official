@@ -1,0 +1,17 @@
+**/.env
+**/.env.*
+**/config.php
+**/credentials*
+**/*backup*
+**/*.sql
+**/*.sql.*
+**/.state/**
+**/model-cache/**
+**/.venv/**
+**/node_modules/**
+**/dist/**
+**/vendor/**
+**/.git/**
+BAHABA-Transfer-2026-10-12.local/database/**
+BAHABA-Transfer-2026-10-12.local/logs/**
+BAHABA-Transfer-2026-10-12.local/nlp-service/**

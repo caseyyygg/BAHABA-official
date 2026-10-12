@@ -1,0 +1,49 @@
+{
+  "locations": [
+    {
+      "id": "navotas",
+      "name": "Navotas",
+      "city": "Navotas City",
+      "region": "National Capital Region",
+      "aliases": ["Navotas", "Navotas City"],
+      "map_city": "Navotas",
+      "map_municipality": ""
+    },
+    {
+      "id": "bulacan",
+      "name": "Bulacan",
+      "city": "Bulacan",
+      "region": "Central Luzon",
+      "aliases": ["Bulacan Province"],
+      "map_city": "Bulacan",
+      "map_municipality": ""
+    },
+    {
+      "id": "marikina",
+      "name": "Marikina",
+      "city": "Marikina City",
+      "region": "National Capital Region",
+      "aliases": ["Marikina", "Marikina City"],
+      "map_city": "Marikina",
+      "map_municipality": ""
+    },
+    {
+      "id": "pampanga",
+      "name": "Pampanga",
+      "city": "Pampanga",
+      "region": "Central Luzon",
+      "aliases": ["Pampanga Province"],
+      "map_city": "Pampanga",
+      "map_municipality": ""
+    },
+    {
+      "id": "malolos",
+      "name": "Malolos City",
+      "city": "Malolos City",
+      "region": "Central Luzon",
+      "aliases": ["Malolos", "City of Malolos (Capital)"],
+      "map_city": "Bulacan",
+      "map_municipality": "City of Malolos (Capital)"
+    }
+  ]
+}

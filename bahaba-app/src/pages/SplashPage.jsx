@@ -1,8 +1,13 @@
+import { useCallback, useState } from 'react'
 import { BrandMark } from '../components/Icon'
+import RisingFloodTransition from '../components/RisingFloodTransition'
 
-export default function SplashPage({ onGetStarted, onLogin }) {
+export default function SplashPage({ onGetStarted, onLogin, transitionEnabled = false }) {
+  const [transitionRevealed, setTransitionRevealed] = useState(false)
+  const handleTransitionReveal = useCallback(() => setTransitionRevealed(true), [])
+
   return (
-    <div className="phone-screen splash-screen">
+    <div className={`phone-screen splash-screen${transitionEnabled && !transitionRevealed ? ' transition-pending' : ''}`}>
       <div className="statusbar">
         <span>9:47</span>
         <div className="status-icons">
@@ -15,7 +20,7 @@ export default function SplashPage({ onGetStarted, onLogin }) {
       <div className="splash-content">
         <div className="splash-brand">
           <BrandMark className="brand-mark" />
-          <h1>BAHABA</h1>
+          <h1>BANTALA</h1>
           <p>Stay Safe, Stay Alert</p>
         </div>
 
@@ -26,6 +31,7 @@ export default function SplashPage({ onGetStarted, onLogin }) {
       </div>
 
       <div className="wave-footer" />
+      <RisingFloodTransition enabled={transitionEnabled} onReveal={handleTransitionReveal} />
     </div>
   )
 }

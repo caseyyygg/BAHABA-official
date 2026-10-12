@@ -1,7 +1,21 @@
 (function(){
  const host=document.getElementById('view-summary');if(!host)return;
  const panel=document.createElement('section');panel.className='panel';panel.id='collection-history';
- panel.innerHTML=`<div class="panel-head"><div><h3>Collected posts by month and year</h3><p class="view-sub">Posts leave the live feed after 24 hours and remain available here. Months follow collection time in the Philippines.</p></div></div><div class="panel-body"><label>Collection period <select id="collection-year"><option value="">Latest 12 months</option></select></label> <button type="button" class="btn btn-outline btn-sm" id="collection-export">Download Excel (.xlsx)</button><p id="collection-status" role="status"></p><p class="view-sub">Flood classifications are signals, not verified flood incidents. Multiple posts may describe the same flood. Missing records do not mean no flooding.</p><div id="collection-tables" style="overflow-x:auto"></div></div>`;
+ const style=document.createElement('style');style.textContent=`
+ #collection-history .panel-head { padding:22px 24px; }
+ #collection-history .panel-body { padding:24px; }
+ #collection-history h3 { font:600 15px/1.5 Inter,system-ui,sans-serif; }
+ #collection-history .view-sub { max-width:760px; margin-top:6px; font:400 12px/1.7 Inter,system-ui,sans-serif; color:var(--ink-soft); }
+ #collection-history .collection-toolbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:16px; }
+ #collection-history .collection-toolbar label { display:flex; flex-direction:column; align-items:flex-start; gap:8px; font:600 12px/1.5 Inter,system-ui,sans-serif; color:var(--ink-soft); }
+ #collection-history #collection-year { min-width:210px; min-height:42px; padding:10px 34px 10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--mist-50); color:var(--ink); font:400 13px/1.5 Inter,system-ui,sans-serif; }
+ #collection-history #collection-export { min-height:42px; margin:0; padding:10px 16px; border-radius:10px; font-size:12px; }
+ #collection-history #collection-status { margin:18px 0 12px; font:400 12px/1.7 Inter,system-ui,sans-serif; color:var(--ink-soft); }
+ #collection-history .panel-body > .view-sub { padding:12px 14px; background:var(--mist-50); border-radius:10px; }
+ #collection-year:focus-visible { outline:2px solid var(--blue-100); outline-offset:2px; }
+ @media(max-width:600px) { #collection-history .panel-head, #collection-history .panel-body { padding:18px; } #collection-history .collection-toolbar label, #collection-history #collection-year { width:100%; } }
+ `;document.head.append(style);
+ panel.innerHTML=`<div class="panel-head"><div><h3>Collected posts by month and year</h3><p class="view-sub">Posts leave the live feed after 24 hours and remain available here. Months follow collection time in the Philippines.</p></div></div><div class="panel-body"><div class="collection-toolbar"><label>Collection period <select id="collection-year"><option value="">Latest 12 months</option></select></label> <button type="button" class="btn btn-outline btn-sm" id="collection-export">Download Excel (.xlsx)</button></div><p id="collection-status" role="status"></p><p class="view-sub">Flood classifications are signals, not verified flood incidents. Multiple posts may describe the same flood. Missing records do not mean no flooding.</p><div id="collection-tables" style="overflow-x:auto"></div></div>`;
  document.getElementById('summary-status').after(panel);let sequence=0;
  const get=id=>document.getElementById(id);
  async function refresh(){

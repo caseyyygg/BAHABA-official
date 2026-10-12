@@ -1,8 +1,9 @@
 import PasswordInput from '../components/PasswordInput'
 import { Icon } from '../components/Icon'
+import SectionBrandBanner from '../components/SectionBrandBanner'
 import { useState } from 'react'
 
-export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, onSaveProfile }) {
+export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, selectedCity, onSaveProfile }) {
   const [name, setName] = useState(currentUser?.username || '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
@@ -35,25 +36,16 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
         </div>
       </div>
 
+      <SectionBrandBanner
+        title="Settings"
+        subtitle="Account & Safety Preferences"
+        scope={locationSharingEnabled && currentPlace ? currentPlace : selectedCity}
+        identityName={currentUser?.username || 'John Doe'}
+        identityDetail={currentUser?.email || 'johndoe@gmail.com'}
+        identityMeta={[`Preferred locations: ${currentUser?.preferred_locations?.length || 0}`]}
+      />
+
       <div className="settings-scroll">
-        <h2 className="settings-title">Settings</h2>
-
-        <div className="profile-card">
-          <div className="avatar">{(currentUser?.username || 'JD').slice(0, 2).toUpperCase()}</div>
-          <div>
-            <strong>{currentUser?.username || 'John Doe'}</strong>
-            <small>{currentUser?.email || 'johndoe@gmail.com'}</small>
-            <small className="profile-location">Preferred locations: {currentUser?.preferred_locations?.length || 0}</small>
-            <small className="profile-location">
-              {locationSharingEnabled && currentPlace && currentPlace !== 'Finding your place...'
-                ? `Sharing: ${currentPlace}`
-                : locationSharingEnabled
-                  ? 'Current municipality unavailable'
-                : 'Not sharing location'}
-            </small>
-          </div>
-        </div>
-
         <div className="settings-form location-settings-form">
 <button className="manage-preferences-button" type="button" onClick={() => setScreen('preferences')}><span className="manage-preferences-icon"><Icon name="pin" size={21} /></span><span><strong>Manage preferred locations</strong><small>{currentUser?.preferred_locations?.length || 0} locations for flood and LGU updates</small></span><span aria-hidden="true">›</span></button>
         </div>
@@ -104,14 +96,6 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
             />
           </div>
         </div>
-
-        <p className="settings-status">Browser notifications work while BAHABA is open. Delivery after the app is closed is not implemented.</p>
-        {(locationStatus || notificationStatus) && (
-          <div className="settings-status" role="status" aria-live="polite">
-            {locationStatus && <p>{locationStatus}</p>}
-            {notificationStatus && <p>{notificationStatus}</p>}
-          </div>
-        )}
 
         <form className="settings-profile-form" onSubmit={saveProfile}>
           <fieldset className="settings-form settings-profile-fields" disabled={saving}>

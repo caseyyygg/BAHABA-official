@@ -19,6 +19,8 @@ if (!api.includes("require_once __DIR__ . '/social-accounts.php';")) api = api.r
 writeFileSync(apiPath, api);
 const htmlPath = resolve(admin, 'index.html');
 let html = readFileSync(htmlPath, 'utf8');
-if (!html.includes('src="social-accounts.js')) html = html.replace('</body>', '<script src="social-accounts.js?v=20261012"></script>\n</body>');
+const socialScript = '<script src="social-accounts.js?v=20261013-facebook-auto"></script>';
+if (html.includes('src="social-accounts.js')) html = html.replace(/<script\s+src="social-accounts\.js(?:\?[^\"]*)?"><\/script>/, socialScript);
+else html = html.replace('</body>', `${socialScript}\n</body>`);
 writeFileSync(htmlPath, html);
 console.log('Installed LGU social account controls. Browser service configuration is required to enable sign-in.');

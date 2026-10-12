@@ -1,2 +1,4 @@
 BAHABA-Transfer-*.local/
 BAHABA-Transfer-*.zip
+deploy/social-sessions/.venv/
+deploy/social-sessions/.local/

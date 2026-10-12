@@ -161,7 +161,8 @@ async def operate(data: Action):
             sessions[key] = session
             try:
                 await page.goto(PLATFORMS[data.platform], wait_until='domcontentloaded', timeout=20000)
-            except Exception:
+            except Exception as exc:
+                print(f'Social browser navigation failed ({type(exc).__name__}): {exc}', flush=True)
                 await close(key)
                 raise HTTPException(503, 'The platform login page could not be opened. Try again.') from None
         if not session:
@@ -174,6 +175,26 @@ async def operate(data: Action):
                 session['page'] = page
             if data.operation == 'click':
                 await page.mouse.click(data.x, data.y)
+            elif data.operation == 'credentials':
+                if data.platform != 'Facebook':
+                    raise HTTPException(422, 'Automatic sign-in is currently supported for Facebook only. Use the field buttons for this platform.')
+                try:
+                    credentials = json.loads(data.text)
+                    email = credentials['email']
+                    password = credentials['password']
+                except (ValueError, KeyError, TypeError):
+                    raise HTTPException(422, 'Enter both your email and password, then try again.') from None
+                if not isinstance(email, str) or not email.strip() or not isinstance(password, str) or not password:
+                    raise HTTPException(422, 'Enter both your email and password, then try again.')
+                email_field = page.locator('input[name="email"]')
+                password_field = page.locator('input[name="pass"]')
+                submit_button = page.locator('input[type="submit"]')
+                if not await email_field.count() or not await password_field.count() or not await submit_button.count():
+                    raise HTTPException(422, 'Facebook changed its login form. Use the manual Fill buttons instead.')
+                await email_field.first.fill(email.strip())
+                await password_field.first.fill(password)
+                await submit_button.first.click(timeout=10000)
+                await page.wait_for_timeout(700)
             elif data.operation == 'type':
                 await page.keyboard.insert_text(data.text)
             elif data.operation == 'key':

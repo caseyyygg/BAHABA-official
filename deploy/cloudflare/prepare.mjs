@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
@@ -17,8 +17,13 @@ for (const name of adminFiles) {
   try { cpSync(source, resolve(stagedAdmin, name), { recursive: true, force: true }) }
   catch (error) { if (error.code !== 'ENOENT') throw error }
 }
+for (const [name, fallback] of [['admin-confirm.js', resolve(app, 'scripts/admin-confirm.js')], ['bahaba-logo.jpg', resolve(app, 'public/bahaba-logo.jpg')]]) {
+  if (!existsSync(resolve(stagedAdmin, name)) && existsSync(fallback)) cpSync(fallback, resolve(stagedAdmin, name), { force: true })
+}
 mkdirSync(resolve(stagedAdmin, 'nlp-service'), { recursive: true })
-cpSync(resolve(sourceAdmin, 'nlp-service/app.py'), resolve(stagedAdmin, 'nlp-service/app.py'))
+const sourceNlpApp = resolve(sourceAdmin, 'nlp-service/app.py')
+const nlpApp = existsSync(sourceNlpApp) ? sourceNlpApp : resolve(here, '../huggingface-space/app.py')
+cpSync(nlpApp, resolve(stagedAdmin, 'nlp-service/app.py'), { force: true })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-report-workflow.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-collected-history.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-barangay-status.mjs'), stagedAdmin], { stdio: 'inherit' })

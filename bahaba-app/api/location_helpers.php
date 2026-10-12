@@ -134,9 +134,17 @@ function bahaba_ensure_location_schema(PDO $pdo): void
         display_name VARCHAR(100) NOT NULL
     )");
     if (!$hasMigration('location_registry_v1')) {
-        $saveLocation = $pdo->prepare('INSERT INTO locations (id, display_name) VALUES (:id, :display_name) ON DUPLICATE KEY UPDATE display_name = VALUES(display_name)');
-        foreach (bahaba_supported_locations() as $location) {
-            $saveLocation->execute(['id' => $location['id'], 'display_name' => $location['name']]);
+        foreach (array_chunk(bahaba_supported_locations(), 250) as $batch) {
+            $values = [];
+            $placeholders = [];
+            foreach ($batch as $location) {
+                $placeholders[] = '(?, ?)';
+                $values[] = $location['id'];
+                $values[] = $location['name'];
+            }
+            $sql = 'INSERT INTO locations (id, display_name) VALUES ' . implode(', ', $placeholders)
+                . ' ON DUPLICATE KEY UPDATE display_name = VALUES(display_name)';
+            $pdo->prepare($sql)->execute($values);
         }
         $markMigration->execute(['version' => 'location_registry_v1']);
     }

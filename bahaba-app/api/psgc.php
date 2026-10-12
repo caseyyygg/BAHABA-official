@@ -51,11 +51,23 @@ function bahaba_ensure_psgc_schema(PDO $pdo): void
     )");
     bahaba_ensure_column($pdo, 'psgc_locations', 'active', 'BOOLEAN NOT NULL DEFAULT TRUE');
     $pdo->exec('UPDATE psgc_locations SET active=FALSE');
-    $save = $pdo->prepare('INSERT INTO psgc_locations (id, city, province, region, display_name, active) VALUES (?, ?, ?, ?, ?, TRUE) ON DUPLICATE KEY UPDATE city=VALUES(city), province=VALUES(province), region=VALUES(region), display_name=VALUES(display_name), active=TRUE');
-    $legacySave = $pdo->prepare('INSERT IGNORE INTO locations (id, display_name) VALUES (?, ?)');
-    foreach (bahaba_psgc_locations() as $l) {
-        $save->execute([$l['id'], $l['city'], $l['province'], $l['region'], $l['name']]);
-        $legacySave->execute([$l['id'], $l['city']]);
+    foreach (array_chunk(bahaba_psgc_locations(), 150) as $batch) {
+        $psgcValues = [];
+        $psgcPlaceholders = [];
+        $legacyValues = [];
+        $legacyPlaceholders = [];
+        foreach ($batch as $location) {
+            $psgcPlaceholders[] = '(?, ?, ?, ?, ?, TRUE)';
+            array_push($psgcValues, $location['id'], $location['city'], $location['province'], $location['region'], $location['name']);
+            $legacyPlaceholders[] = '(?, ?)';
+            array_push($legacyValues, $location['id'], $location['city']);
+        }
+        $pdo->prepare('INSERT INTO psgc_locations (id, city, province, region, display_name, active) VALUES '
+            . implode(', ', $psgcPlaceholders)
+            . ' ON DUPLICATE KEY UPDATE city=VALUES(city), province=VALUES(province), region=VALUES(region), display_name=VALUES(display_name), active=TRUE')
+            ->execute($psgcValues);
+        $pdo->prepare('INSERT IGNORE INTO locations (id, display_name) VALUES ' . implode(', ', $legacyPlaceholders))
+            ->execute($legacyValues);
     }
     bahaba_ensure_column($pdo, 'users', 'preferred_locations', 'JSON NULL');
     bahaba_ensure_column($pdo, 'users', 'preferences_updated_at', 'DATETIME(6) NULL');

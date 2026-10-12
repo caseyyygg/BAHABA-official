@@ -73,12 +73,12 @@ function bahaba_ensure_psgc_schema(PDO $pdo): void
     bahaba_ensure_column($pdo, 'users', 'preferences_updated_at', 'DATETIME(6) NULL');
     bahaba_ensure_column($pdo, 'users', 'notification_baseline_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 0');
     bahaba_ensure_column($pdo, 'locations', 'psgc_id', 'CHAR(10) NULL');
-    $pdo->exec('UPDATE locations l JOIN psgc_locations p ON p.id=l.id SET l.psgc_id=p.id');
+    $pdo->exec('UPDATE locations l JOIN psgc_locations p ON BINARY p.id=BINARY l.id SET l.psgc_id=p.id');
     // Additive mapping: existing ACLs and province-wide assignments are never rewritten.
     foreach (['navotas', 'marikina', 'malolos'] as $id) {
         $pdo->prepare('UPDATE locations SET psgc_id = ? WHERE id = ?')->execute([bahaba_legacy_psgc($id), $id]);
     }
-    $pdo->exec("UPDATE users u JOIN locations l ON l.id=u.selected_location SET u.preferred_locations=JSON_ARRAY(l.psgc_id) WHERE u.preferred_locations IS NULL AND l.psgc_id IS NOT NULL");
+    $pdo->exec("UPDATE users u JOIN locations l ON BINARY l.id=BINARY u.selected_location SET u.preferred_locations=JSON_ARRAY(l.psgc_id) WHERE u.preferred_locations IS NULL AND l.psgc_id IS NOT NULL");
     $pdo->exec("CREATE TABLE IF NOT EXISTS location_mapping_review (
         entity_table VARCHAR(50) NOT NULL, entity_id VARCHAR(32) NOT NULL,
         original_value VARCHAR(255) NULL, reason VARCHAR(255) NOT NULL,
@@ -88,12 +88,12 @@ function bahaba_ensure_psgc_schema(PDO $pdo): void
         if (!bahaba_table_exists($pdo, $table)) continue;
         bahaba_ensure_column($pdo, $table, 'psgc_id', 'CHAR(10) NULL');
         $column = $table === 'admin_users' ? 'assigned_location' : 'location_id';
-        $pdo->exec("UPDATE `$table` t JOIN locations l ON l.id = t.`$column` SET t.psgc_id = l.psgc_id WHERE t.psgc_id IS NULL AND l.psgc_id IS NOT NULL");
+        $pdo->exec("UPDATE `$table` t JOIN locations l ON BINARY l.id=BINARY t.`$column` SET t.psgc_id = l.psgc_id WHERE t.psgc_id IS NULL AND l.psgc_id IS NOT NULL");
         $pdo->exec("INSERT IGNORE INTO location_mapping_review (entity_table, entity_id, original_value, reason)
-            SELECT '$table', id, city, 'Unmapped or retired location; verify province and municipality before assigning PSGC' FROM `$table` t WHERE psgc_id IS NULL OR NOT EXISTS (SELECT 1 FROM psgc_locations p WHERE p.id=t.psgc_id AND p.active=TRUE)");
+            SELECT '$table', id, city, 'Unmapped or retired location; verify province and municipality before assigning PSGC' FROM `$table` t WHERE psgc_id IS NULL OR NOT EXISTS (SELECT 1 FROM psgc_locations p WHERE BINARY p.id=BINARY t.psgc_id AND p.active=TRUE)");
     }
     $pdo->exec("INSERT IGNORE INTO location_mapping_review (entity_table, entity_id, original_value, reason)
-        SELECT 'users', u.id, u.selected_location, 'Legacy scope is not an explicitly mapped municipality' FROM users u LEFT JOIN locations l ON l.id=u.selected_location WHERE u.selected_location IS NOT NULL AND l.psgc_id IS NULL");
+        SELECT 'users', u.id, u.selected_location, 'Legacy scope is not an explicitly mapped municipality' FROM users u LEFT JOIN locations l ON BINARY l.id=BINARY u.selected_location WHERE u.selected_location IS NOT NULL AND l.psgc_id IS NULL");
     $reviewPreference = $pdo->prepare("INSERT IGNORE INTO location_mapping_review (entity_table,entity_id,original_value,reason) VALUES ('users', ?, ?, 'Retired or unknown preference codes; retain original values and review explicit PSGC crosswalk')");
     foreach ($pdo->query('SELECT id,preferred_locations FROM users WHERE preferred_locations IS NOT NULL') as $user) {
         $ids = json_decode($user['preferred_locations'], true);
@@ -136,7 +136,7 @@ function bahaba_sync_notification_events(PDO $pdo): void
               'advisory' => ['announcements', "t.status = 'published'", 't.title']] as $kind => [$table, $where, $title]) {
         $pdo->exec("INSERT IGNORE INTO resident_notification_events (kind, record_id, psgc_id, city, province, barangay, title)
             SELECT '$kind', t.id, p.id, p.city, p.province, t.barangay, $title FROM `$table` t
-            LEFT JOIN locations l ON l.id = t.location_id JOIN psgc_locations p ON p.id = COALESCE(t.psgc_id, l.psgc_id)
+            LEFT JOIN locations l ON BINARY l.id=BINARY t.location_id JOIN psgc_locations p ON BINARY p.id=BINARY COALESCE(t.psgc_id, l.psgc_id)
             LEFT JOIN resident_notification_events existing ON existing.kind='$kind' AND existing.record_id=t.id
             WHERE $where AND existing.id IS NULL");
     }
@@ -164,8 +164,8 @@ function bahaba_ensure_notification_triggers(PDO $pdo): void
                     UPDATE resident_notification_clock SET tick=tick+1 WHERE id=1;
                     INSERT IGNORE INTO resident_notification_events (kind, record_id, psgc_id, city, province, barangay, title)
                     SELECT '$kind', NEW.id, p.id, p.city, p.province, NEW.barangay, $title
-                    FROM psgc_locations p LEFT JOIN locations l ON l.id=NEW.location_id
-                    WHERE p.id=COALESCE(NEW.psgc_id,l.psgc_id);
+                    FROM psgc_locations p LEFT JOIN locations l ON BINARY l.id=BINARY NEW.location_id
+                    WHERE BINARY p.id=BINARY COALESCE(NEW.psgc_id,l.psgc_id);
                 END IF; END");
         }
     }

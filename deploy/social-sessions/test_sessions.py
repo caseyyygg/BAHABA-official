@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
 import app
@@ -82,6 +82,34 @@ class SessionIsolationTests(unittest.IsolatedAsyncioTestCase):
             await app.authorized('Bearer private-test-token')
         finally:
             app.TOKEN = previous
+
+    async def test_start_waits_for_visible_controls_before_screenshot(self):
+        context, page = AsyncMock(), AsyncMock()
+        context.set_default_timeout = Mock()
+        page.on = Mock()
+        context.new_page.return_value = page
+        context.pages = [page]
+        page.locator = Mock(return_value=Mock(first=Mock(wait_for=AsyncMock())))
+        page.screenshot.return_value = b'jpeg'
+        fake_browser = Mock(new_context=AsyncMock(return_value=context))
+        with patch.object(app, 'browser', fake_browser):
+            result = await app.operate(self.action(operation='start'))
+        page.goto.assert_awaited_once_with(app.PLATFORMS['Facebook'], wait_until='commit', timeout=15000)
+        page.locator.return_value.first.wait_for.assert_awaited_once_with(timeout=10000)
+        self.assertTrue(result['image'])
+
+    async def test_control_timeout_still_shows_platform_challenge(self):
+        context, page = AsyncMock(), AsyncMock()
+        context.set_default_timeout = Mock()
+        page.on = Mock()
+        context.new_page.return_value = page
+        context.pages = [page]
+        page.locator = Mock(return_value=Mock(first=Mock(wait_for=AsyncMock(side_effect=app.BrowserTimeout('slow page')))))
+        page.screenshot.return_value = b'challenge'
+        with patch.object(app, 'browser', Mock(new_context=AsyncMock(return_value=context))):
+            result = await app.operate(self.action(operation='start'))
+        self.assertTrue(result['image'])
+        context.close.assert_not_awaited()
 
 
 if __name__ == '__main__':

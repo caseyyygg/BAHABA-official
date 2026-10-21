@@ -2,3 +2,13 @@ BAHABA-Transfer-*.local/
 BAHABA-Transfer-*.zip
 deploy/social-sessions/.venv/
 deploy/social-sessions/.local/
+
+# Local build tools, caches, and admin checkouts
+.android/
+.build-jdk21/
+.gradle-cache/
+node_modules/
+BAHABA-ADMIN-repo/
+BAHABA-ADMIN-workspace/
+deploy/cloudflare/output-review*/
+deploy/alwaysdata/output*/

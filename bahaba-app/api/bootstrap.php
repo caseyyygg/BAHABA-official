@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/location_helpers.php';
 require_once __DIR__ . '/psgc.php';
+require_once __DIR__ . '/push.php';
 
 // API errors must never turn into HTML pages that the resident client cannot parse.
 ini_set('display_errors', '0');
@@ -86,6 +87,7 @@ require_once __DIR__.'/password-recovery.php';
 bahaba_reset_schema($pdo);
 bahaba_ensure_column($pdo, 'reports', 'map_hidden', 'BOOLEAN NOT NULL DEFAULT FALSE');
 bahaba_ensure_psgc_schema($pdo);
+bahaba_ensure_push_schema($pdo);
 
 function request_json(): array
 {
@@ -105,6 +107,8 @@ function public_user(array $user): array
     return [
         'preferred_locations' => bahaba_preferred_locations($user),
         'preferences_updated_at' => $user['preferences_updated_at'] ?? null,
+        'push_notifications_enabled' => (bool) ($user['push_notifications_enabled'] ?? true),
+        'flood_notifications_enabled' => (bool) ($user['flood_notifications_enabled'] ?? true),
         'id' => (int) $user['id'],
         'email' => $user['email'],
         'username' => $user['username'],

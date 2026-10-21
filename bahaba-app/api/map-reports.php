@@ -30,9 +30,11 @@ if ($before !== '') {
 }
 $stmt = $pdo->prepare('SELECT r.id, p.id AS psgc_id, COALESCE(p.city,r.city) AS city, p.province, r.barangay,
     r.latitude, r.longitude, r.severity, r.description, r.created_at FROM reports r
-    LEFT JOIN locations l ON l.id=r.location_id LEFT JOIN psgc_locations p ON p.id=COALESCE(r.psgc_id,l.psgc_id)
+    LEFT JOIN locations l ON BINARY l.id=BINARY r.location_id LEFT JOIN psgc_locations p ON BINARY p.id=BINARY COALESCE(r.psgc_id,l.psgc_id)
     WHERE ' . implode(' AND ', $where) . ' ORDER BY r.id DESC LIMIT 501');
 $stmt->execute($params); $reports = $stmt->fetchAll();
 $more = count($reports) > 500; if ($more) array_pop($reports);
+require_once __DIR__.'/flood-signals.php';
 respond(['reports' => $reports, 'next' => $more ? (string) end($reports)['id'] : null,
+    'flood_signals'=>bahaba_resident_flood_signals($pdo,$location!==''?$location:null),
     'coverage_notice' => 'Available verified reports only. No reports does not confirm absence of flooding. Some LGUs do not supply data.']);

@@ -4,8 +4,6 @@ import { locationById } from '../locations'
 export default function LocationScopeSelect({ locations = [], value, onChange, className = '', label = 'Choose location' }) {
   const picker = useRef(null)
   const options = useMemo(() => [...new Set(locations)].map(id => locationById(id)).filter(Boolean), [locations])
-  if (!options.length) return null
-  const selected = options.find(location => location.id === value) || options[0]
   useEffect(() => {
     const closeOutside = event => { if (picker.current && !picker.current.contains(event.target)) picker.current.open = false }
     const closeEscape = event => { if (event.key === 'Escape' && picker.current?.open) picker.current.open = false }
@@ -13,6 +11,9 @@ export default function LocationScopeSelect({ locations = [], value, onChange, c
     document.addEventListener('keydown', closeEscape)
     return () => { document.removeEventListener('pointerdown', closeOutside); document.removeEventListener('keydown', closeEscape) }
   }, [])
+
+  if (!options.length) return null
+  const selected = options.find(location => location.id === value) || options[0]
 
   return (
     <details ref={picker} className={`location-scope ${className}`}>

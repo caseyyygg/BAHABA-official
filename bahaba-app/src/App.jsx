@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Capacitor } from '@capacitor/core'
+import { PushNotifications } from '@capacitor/push-notifications'
 import { useSavedSetting } from './useSavedSetting'
 import { notificationRegistration, showBahabaNotification, withNotificationTimeout } from './notifications'
 import './App.css'
@@ -11,7 +13,7 @@ import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
 import LocationPicker from './components/LocationPicker'
-import { getNotificationEvents, resolveCurrentLocation } from './api'
+import { getNotificationEvents, registerPushDevice, resolveCurrentLocation, unregisterPushDevice } from './api'
 import {
   checkVerification,
   getLocationData,
@@ -61,7 +63,7 @@ const navigation = [
   },
   {
     id: 'map',
-    label: 'Map',
+    label: 'Reports',
     icon: 'map',
   },
   {
@@ -103,6 +105,7 @@ function App() {
   const [currentPlace, setCurrentPlace] = useState('')
   const [currentPsgc, setCurrentPsgc] = useState(null)
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useSavedSetting('bahaba_notifications', true)
+  const nativePushToken = useRef('')
   const notificationPreferences = useRef({})
   notificationPreferences.current = { push: pushNotificationsEnabled, flood: floodAlertsEnabled }
   const [locationStatus, setLocationStatus] = useState('')
@@ -120,6 +123,53 @@ function App() {
     return () => observer.disconnect()
   }, [screen])
   const [currentUser, setCurrentUser] = useState(null)
+  useEffect(() => {
+    if (!currentUser?.id) return
+    setPushNotificationsEnabled(currentUser.push_notifications_enabled !== false)
+    setFloodAlertsEnabled(currentUser.flood_notifications_enabled !== false)
+  }, [currentUser?.id, currentUser?.push_notifications_enabled, currentUser?.flood_notifications_enabled, setPushNotificationsEnabled, setFloodAlertsEnabled])
+
+  useEffect(() => {
+    if (!currentUser?.id || !pushNotificationsEnabled || !Capacitor.isNativePlatform()) return
+    let cancelled = false
+    const listeners = []
+    const listen = async () => {
+      listeners.push(await PushNotifications.addListener('registration', token => {
+        if (cancelled || !token?.value) return
+        nativePushToken.current = token.value
+        registerPushDevice(token.value).catch(error => setNotificationStatus(`Push token could not be saved: ${error.message}`))
+      }))
+      listeners.push(await PushNotifications.addListener('registrationError', () => {
+        if (!cancelled) setNotificationStatus('Could not register this device for push notifications. Check your connection and try again.')
+      }))
+      listeners.push(await PushNotifications.addListener('pushNotificationReceived', notification => {
+        if (!cancelled) setAlertBanner({ title: notification.title || 'BANTALA alert', body: notification.body || '', isTest: false })
+      }))
+      listeners.push(await PushNotifications.addListener('pushNotificationActionPerformed', action => {
+        const data = action.notification?.data || {}
+        if (data.psgc_id) setActiveLocationId(String(data.psgc_id))
+        setScreen('map')
+        setActiveNav('alerts')
+      }))
+      try {
+        await PushNotifications.createChannel({ id: 'flood-alerts', name: 'Flood alerts and LGU announcements', description: 'Verified flood reports, preliminary flood signals, and published LGU announcements.', importance: 5, sound: 'default', vibration: true, visibility: 1 })
+        let permission = await PushNotifications.checkPermissions()
+        if (permission.receive === 'prompt') permission = await PushNotifications.requestPermissions()
+        if (permission.receive !== 'granted') {
+          if (!cancelled) setNotificationStatus('Allow notifications in Android settings to receive alerts while BANTALA is closed.')
+          return
+        }
+        await PushNotifications.register()
+      } catch {
+        if (!cancelled) setNotificationStatus('Push notifications are unavailable on this device right now.')
+      }
+    }
+    listen()
+    return () => {
+      cancelled = true
+      listeners.forEach(listener => listener.remove())
+    }
+  }, [currentUser?.id, pushNotificationsEnabled])
   const [locationData, setLocationData] = useState({
     reports: [],
     nlp_events: [],
@@ -202,7 +252,7 @@ function App() {
         const data = await getNotificationEvents(cursor, currentPsgc || '')
         if (cancelled) return
         cursor = data.cursor
-        const events = data.events.filter(e => e.kind !== 'flood' || notificationPreferences.current.flood)
+        const events = data.events.filter(e => !['flood', 'flood_signal'].includes(e.kind) || notificationPreferences.current.flood)
         if (!events.length) return
         const title = events.length === 1 ? `BANTALA: ${events[0].title}` : `BANTALA: ${events.length} new alerts`
         const body = events.map(e => [e.city, e.province, e.barangay, e.title].filter(Boolean).join(', ')).join(' · ')
@@ -414,6 +464,11 @@ function App() {
   }
 
   const handleLogout = async () => {
+    if (nativePushToken.current) {
+      await unregisterPushDevice(nativePushToken.current).catch(() => {})
+      nativePushToken.current = ''
+      if (Capacitor.isNativePlatform()) await PushNotifications.unregister().catch(() => {})
+    }
     setCurrentUser(null)
     setCurrentPsgc(null)
     setCurrentLocation(null)
@@ -481,7 +536,21 @@ function App() {
   const handleNotificationsToggle = async (enabled) => {
     if (!enabled) {
       setPushNotificationsEnabled(false)
+      if (currentUser?.id) updateProfile({ push_notifications_enabled: false }).then(({ user }) => setCurrentUser(user)).catch(() => setNotificationStatus('Could not save notification preference. Try again.'))
       setNotificationStatus('Push notifications are off.')
+      return
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      setPushNotificationsEnabled(true)
+      try {
+        const { user } = await updateProfile({ push_notifications_enabled: true })
+        setCurrentUser(user)
+        setNotificationStatus('Requesting Android notification permission…')
+      } catch (error) {
+        setPushNotificationsEnabled(false)
+        setNotificationStatus(`Could not enable notifications: ${error.message}`)
+      }
       return
     }
 
@@ -518,6 +587,7 @@ function App() {
         tag: `bahaba-notification-test-${Date.now()}`,
       }, registration)
       setPushNotificationsEnabled(true)
+      await updateProfile({ push_notifications_enabled: true }).then(({ user }) => setCurrentUser(user))
       const visible = await withNotificationTimeout(registration.getNotifications(), 'Reading active notifications')
       setNotificationStatus(visible.length > 0 ? 'Test sent. Keep BANTALA open to receive new flood alerts.' : 'Test sent. Check your notification center if no banner appeared.')
     } catch (error) {
@@ -525,6 +595,18 @@ function App() {
       setNotificationStatus(
         `Could not show the test notification: ${error.message || 'Unknown browser error'}. Check browser and device notification settings.`,
       )
+    }
+  }
+
+  const handleFloodAlertsToggle = async (enabled) => {
+    setFloodAlertsEnabled(enabled)
+    if (!currentUser?.id) return
+    try {
+      const { user } = await updateProfile({ flood_notifications_enabled: enabled })
+      setCurrentUser(user)
+    } catch {
+      setFloodAlertsEnabled(!enabled)
+      setNotificationStatus('Could not save flood alert preference. Try again.')
     }
   }
 
@@ -627,6 +709,7 @@ function App() {
             onLocationChange={setActiveLocationId}
             reports={locationData.reports}
             nlpEvents={locationData.nlp_events}
+            cityFloodSignals={locationData.flood_signals}
             announcements={locationData.announcements}
             navigation={navigation}
             activeNav={activeNav}
@@ -669,7 +752,7 @@ function App() {
             setScreen={setScreen}
             onLogout={handleLogout}
             floodAlertsEnabled={floodAlertsEnabled}
-            setFloodAlertsEnabled={setFloodAlertsEnabled}
+            setFloodAlertsEnabled={handleFloodAlertsToggle}
             locationSharingEnabled={locationSharingEnabled}
             onLocationToggle={handleLocationToggle}
             pushNotificationsEnabled={pushNotificationsEnabled}

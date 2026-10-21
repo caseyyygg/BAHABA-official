@@ -1,3 +1,5 @@
 __pycache__/
 .state/
 .env
+.space-upload-token
+space-output/

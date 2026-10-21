@@ -1,0 +1,10 @@
+{
+  "appId": "com.bantala.floodapp",
+  "appName": "BANTALA",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

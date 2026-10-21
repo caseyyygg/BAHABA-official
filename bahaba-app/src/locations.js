@@ -1,7 +1,8 @@
 import locationConfig from '../location-config.json'
 import registry from '../psgc-registry.json'
 
-export const supportedLocations = registry.locations
+export const isLuzonLocation = location => ['Region I', 'Region II', 'Region III', 'Region IV-A', 'MIMAROPA Region', 'Region V', 'National Capital Region', 'Cordillera Administrative Region'].includes(location?.region)
+export const supportedLocations = registry.locations.filter(isLuzonLocation)
 export const legacyPsgc = { navotas: '1380900000', marikina: '1380700000', malolos: '0301410000' }
 export const locationById = (id) => supportedLocations.find(l => l.id === (legacyPsgc[id] || id)) || locationConfig.locations.find(l => l.id === id) || null
 export const searchLocations = (query, { region = '', province = '' } = {}) => {

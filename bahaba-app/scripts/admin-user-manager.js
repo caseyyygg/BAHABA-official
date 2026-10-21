@@ -4,6 +4,7 @@
   const pages = { admin: 1, app: 1 };
   const pageSizes = { admin: 10, app: 10 };
   const originalRender = window.renderUserManager;
+  let appUsers = [];
   function locationName(user) {
     const location = locationForId(user.assigned_location);
     return user.role === 'platform-admin' ? 'All supported locations' : [location?.name, location?.city, user.location, user.city].filter(Boolean).join(' ');
@@ -36,6 +37,7 @@
     actions.append(size, previous, page, next); footer.append(count, actions); panel.append(footer);
   }
   window.userManagerPage = function (users, kind) {
+    if (kind === 'app') appUsers = users;
     const role = document.getElementById(`${kind}-user-role-filter`).value;
     const city = document.getElementById(`${kind}-user-city-filter`).value.trim().toLowerCase();
     const filtered = users.filter(user => {
@@ -55,8 +57,182 @@
     });
     return filtered.slice(start, start + size);
   };
-  function render() { originalRender(); }
+  function render() {
+    originalRender();
+    addAdminEditButtons();
+  }
   window.renderUserManager = render;
+
+  function accountRole(account) {
+    return account.role || (account.acls?.admin_overview === 'full' ? 'platform-admin' : 'lgu-admin');
+  }
+
+  function addAdminEditButtons() {
+    const body = document.getElementById('user-manager-admin-table-body');
+    if (!body) return;
+    for (const row of body.rows) {
+      const email = row.cells[1]?.textContent.trim();
+      const actions = row.cells[5]?.querySelector('.table-actions');
+      if (!email || !actions || actions.querySelector('[data-edit-admin]')) continue;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-outline btn-sm';
+      button.dataset.editAdmin = 'true';
+      button.textContent = 'Edit';
+      button.setAttribute('aria-label', `Edit admin account ${email}`);
+      button.addEventListener('click', () => openAdminEditor(email));
+      actions.prepend(button);
+    }
+  }
+
+  let adminEditor;
+  function openAdminEditor(email) {
+    const account = ACCOUNTS.find(item => item.email.toLowerCase() === email.toLowerCase());
+    if (!account) return;
+    if (!adminEditor) adminEditor = createAdminEditor();
+
+    const role = accountRole(account);
+    adminEditor.email.value = account.email;
+    adminEditor.name.value = account.name || '';
+    adminEditor.role.value = role;
+    adminEditor.location.replaceChildren(new Option('Choose an assigned location', ''));
+    for (const item of SUPPORTED_LOCATIONS) adminEditor.location.add(new Option(item.name, item.id));
+    adminEditor.location.value = account.assigned_location || '';
+    adminEditor.locationField.hidden = role !== 'lgu-admin';
+    const isSelf = account.email.toLowerCase() === session.email.toLowerCase();
+    adminEditor.role.disabled = isSelf;
+    adminEditor.form.dataset.email = account.email;
+    adminEditor.error.textContent = '';
+    adminEditor.root.hidden = false;
+    adminEditor.name.focus();
+  }
+
+  function createAdminEditor() {
+    const root = document.createElement('div');
+    root.className = 'admin-account-editor';
+    root.hidden = true;
+    root.innerHTML = '<section class="admin-account-editor__dialog" role="dialog" aria-modal="true" aria-labelledby="admin-account-editor-title"><header><div><p>ACCOUNT MANAGER</p><h2 id="admin-account-editor-title">Edit admin account</h2></div><button type="button" class="btn btn-outline btn-sm" data-close aria-label="Close edit dialog">Close</button></header><form><label>Full name<input name="name" required maxlength="150" autocomplete="name"></label><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Role<select name="role"><option value="lgu-admin">LGU / Barangay</option><option value="platform-admin">Platform Admin</option></select></label><label data-location-field>Assigned location<select name="location" required></select></label><p class="admin-account-editor__error" role="alert"></p><footer><button type="button" class="btn btn-outline" data-cancel>Cancel</button><button type="submit" class="btn btn-primary">Save changes</button></footer></form></section>';
+    document.body.append(root);
+    const form = root.querySelector('form');
+    const editor = {
+      root,
+      form,
+      name: form.querySelector('[name="name"]'),
+      email: form.querySelector('[name="email"]'),
+      role: form.querySelector('[name="role"]'),
+      location: form.querySelector('[name="location"]'),
+      locationField: form.querySelector('[data-location-field]'),
+      error: form.querySelector('[role="alert"]'),
+    };
+    const close = () => { root.hidden = true; };
+    root.querySelectorAll('[data-close], [data-cancel]').forEach(button => button.addEventListener('click', close));
+    root.addEventListener('click', event => { if (event.target === root) close(); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && !root.hidden) close(); });
+    editor.role.addEventListener('change', () => {
+      editor.locationField.hidden = editor.role.value !== 'lgu-admin';
+      editor.location.required = editor.role.value === 'lgu-admin';
+    });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const originalEmail = form.dataset.email;
+      const account = ACCOUNTS.find(item => item.email.toLowerCase() === originalEmail.toLowerCase());
+      if (!account) { editor.error.textContent = 'This account is no longer in the list. Refresh and try again.'; return; }
+      const nextRole = editor.role.value;
+      if (nextRole === 'lgu-admin' && !editor.location.value) { editor.error.textContent = 'Choose an assigned location for this LGU account.'; return; }
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true;
+      editor.error.textContent = '';
+      const nextEmail = editor.email.value.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) { editor.error.textContent = 'Enter a valid email address.'; submit.disabled = false; return; }
+      const payload = { action: 'users', mode: 'update', email: originalEmail, new_email: nextEmail, name: editor.name.value.trim(), role: nextRole };
+      if (nextRole === 'lgu-admin') payload.assigned_location = editor.location.value;
+      try {
+        const response = await fetch(ADMIN_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, credentials: 'include', body: JSON.stringify(payload) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Could not save this account. Try again.');
+        account.name = payload.name;
+        account.email = nextEmail;
+        account.role = nextRole;
+        if (nextRole === 'lgu-admin') {
+          const assigned = SUPPORTED_LOCATIONS.find(item => item.id === payload.assigned_location);
+          account.assigned_location = payload.assigned_location;
+          account.city = assigned?.city || assigned?.name || account.city;
+          account.acls = { ...account.acls, admin_overview: 'view' };
+        } else {
+          account.assigned_location = null;
+          account.city = 'Metro Manila (All Cities)';
+          account.acls = { ...account.acls, admin_overview: 'full' };
+        }
+        if (session.email.toLowerCase() === originalEmail.toLowerCase()) { session.name = payload.name; session.email = nextEmail; }
+        adminEditor.root.hidden = true;
+        render();
+        showToast(`${payload.name} updated`);
+      } catch (error) {
+        editor.error.textContent = error.message || 'Could not save this account. Try again.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    return editor;
+  }
+
+  let appUserEditor;
+  function openAppUserEditor(user) {
+    if (!appUserEditor) appUserEditor = createAppUserEditor();
+    appUserEditor.form.dataset.id = user.id;
+    appUserEditor.form.dataset.email = user.email;
+    appUserEditor.name.value = user.username || '';
+    appUserEditor.email.value = user.email || '';
+    appUserEditor.error.textContent = '';
+    appUserEditor.root.hidden = false;
+    appUserEditor.name.focus();
+  }
+  function createAppUserEditor() {
+    const root = document.createElement('div');
+    root.className = 'admin-account-editor';
+    root.hidden = true;
+    root.innerHTML = '<section class="admin-account-editor__dialog" role="dialog" aria-modal="true" aria-labelledby="app-user-editor-title"><header><div><p>ACCOUNT MANAGER</p><h2 id="app-user-editor-title">Edit app user</h2></div><button type="button" class="btn btn-outline btn-sm" data-close aria-label="Close edit dialog">Close</button></header><form><label>Full name<input name="name" required maxlength="150" autocomplete="name"></label><label>Email<input name="email" type="email" required maxlength="254" autocomplete="email"></label><p class="admin-account-editor__error" role="alert"></p><footer><button type="button" class="btn btn-outline" data-cancel>Cancel</button><button type="submit" class="btn btn-primary">Save changes</button></footer></form></section>';
+    document.body.append(root);
+    const form = root.querySelector('form');
+    const editor = { root, form, name: form.querySelector('[name="name"]'), email: form.querySelector('[name="email"]'), error: form.querySelector('[role="alert"]') };
+    const close = () => { root.hidden = true; };
+    root.querySelectorAll('[data-close], [data-cancel]').forEach(button => button.addEventListener('click', close));
+    root.addEventListener('click', event => { if (event.target === root) close(); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && !root.hidden) close(); });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const userId = Number(form.dataset.id);
+      const currentEmail = form.dataset.email;
+      const user = appUsers.find(item => Number(item.id) === userId);
+      if (!user) { editor.error.textContent = 'This account is no longer in the list. Refresh and try again.'; return; }
+      const nextEmail = editor.email.value.trim().toLowerCase();
+      const nextName = editor.name.value.trim();
+      if (!nextName) { editor.error.textContent = 'Enter the user’s full name.'; return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) { editor.error.textContent = 'Enter a valid email address.'; return; }
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true; editor.error.textContent = '';
+      try {
+        const response = await fetch(ADMIN_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'app-user-update', user_id: userId, email: currentEmail, new_email: nextEmail, username: nextName }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(response.status === 404 && data.error === 'Not found' ? 'The live API does not have the app user update yet. Replace admin-api.php on the AlwaysData site, then try again.' : (data.error || 'Could not save this account. Try again.'));
+        user.username = nextName; user.email = nextEmail;
+        root.hidden = true; render(); showToast(`${nextName} updated`);
+      } catch (error) {
+        editor.error.textContent = error.message || 'Could not save this account. Try again.';
+      } finally { submit.disabled = false; }
+    });
+    return editor;
+  }
+  const appBody = document.getElementById('user-manager-app-table-body');
+  if (appBody) appBody.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button || button.textContent.trim().toLowerCase() !== 'edit') return;
+    const row = button.closest('tr');
+    const email = row?.cells[1]?.textContent.trim();
+    const user = appUsers.find(item => String(item.email).toLowerCase() === String(email).toLowerCase());
+    if (!user) return;
+    event.preventDefault(); event.stopImmediatePropagation(); openAppUserEditor(user);
+  }, true);
 
   const location = document.getElementById('new-user-location');
   const role = document.getElementById('new-user-role');
@@ -69,9 +245,9 @@
   const menu = document.createElement('div'); menu.className = 'assigned-location-menu';
   const optionsList = document.createElement('div'); optionsList.className = 'assigned-location-options'; optionsList.setAttribute('role', 'listbox'); optionsList.setAttribute('aria-label', 'Supported locations');
   menu.append(search, optionsList);
+  location.before(picker);
   picker.append(summary, location, menu);
   location.hidden = true; location.tabIndex = -1; location.setAttribute('aria-hidden', 'true');
-  location.before(picker);
   const hint = document.createElement('small'); hint.className = 'user-location-hint'; picker.after(hint);
   const password = document.getElementById('new-user-password'); password.type = 'password'; password.autocomplete = 'new-password'; password.minLength = 8;
   for (const id of ['name', 'email', 'role', 'location', 'password']) {

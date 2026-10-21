@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 from urllib.parse import quote, urlencode, urlparse
 
 import x_agent_reach
+import official_x
 import social_collectors
 import scoped_collectors
 import feedparser
@@ -56,6 +57,8 @@ FACEBOOK_KEYWORDS = list(dict.fromkeys(
     if isinstance(keyword, str) and keyword.strip()
 )) if isinstance(FACEBOOK_KEYWORDS, list) else []
 X_PROVIDER = os.getenv("X_PROVIDER", "agent-reach").strip().lower()
+X_BEARER_TOKEN = os.getenv("X_BEARER_TOKEN", "").strip()
+X_OFFICIAL_POLLING_ENABLED = os.getenv("X_OFFICIAL_POLLING_ENABLED", "false").lower() in {"true", "1", "yes"}
 XQUIK_API_KEY = os.getenv("XQUIK_API_KEY", "").strip()
 try:
     X_KEYWORDS = json.loads(os.getenv("X_KEYWORDS", '["baha","flood","lubog"]'))
@@ -138,7 +141,7 @@ collector_state: dict[str, Any] = {
     "posts_processed": 0,
 }
 x_collector_state: dict[str, Any] = {
-    "configured": bool(X_KEYWORDS and (x_agent_reach.configured() if X_PROVIDER == "agent-reach" else XQUIK_API_KEY)),
+    "configured": bool(X_KEYWORDS and (x_agent_reach.configured() if X_PROVIDER == "agent-reach" else X_BEARER_TOKEN if X_PROVIDER == "official" else XQUIK_API_KEY)),
     "running": False,
     "last_poll": None,
     "last_post_at": None,
@@ -198,6 +201,9 @@ class DetectionRequest(BaseModel):
     city: str | None = Field(default=None, max_length=150)
     barangay: str | None = Field(default=None, max_length=150)
     timestamp: str | None = None
+    publisher_id: str | None = Field(default=None, max_length=191)
+    original_post_id: str | None = Field(default=None, max_length=191)
+    is_repost: bool = False
 
 
 def _archive_path(name: str) -> Path:
@@ -339,7 +345,7 @@ def _ingest(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="Could not connect to the BAHABA admin ingest API") from exc
 
 
-def _detect_and_forward(post: DetectionRequest) -> dict[str, Any]:
+def _detect_and_forward(post: DetectionRequest, *, persist: bool = True) -> dict[str, Any]:
     load_models()
     flood_label, flood_confidence = _classify("flood", post.post_text)
     severity_label, _ = _classify("severity", post.post_text)
@@ -351,6 +357,9 @@ def _detect_and_forward(post: DetectionRequest) -> dict[str, Any]:
     urgency = {"neutral": "Neutral", "concerned": "Concerned", "distressed": "Distress", "distress": "Distress"}.get(urgency_label.strip().lower(), "Neutral")
     result: dict[str, Any] = {
         "source": post.source,
+        "publisher_id": post.publisher_id,
+        "original_post_id": post.original_post_id,
+        "is_repost": post.is_repost,
         "post_id": post.post_id,
         "post_text": post.post_text,
         "post_url": post.post_url,
@@ -363,7 +372,7 @@ def _detect_and_forward(post: DetectionRequest) -> dict[str, Any]:
         "urgency": urgency,
         "confidence": flood_confidence,
     }
-    return {"detection": result, "stored": _ingest(result)}
+    return {"detection": result, "stored": _ingest(result) if persist else None}
 
 
 def _load_seen_post_ids(path: Path = seen_posts_path) -> set[str]:
@@ -591,6 +600,8 @@ def _build_x_search_query() -> str:
 
 
 def _fetch_x_recent_posts(since_id: str | None) -> dict[str, Any]:
+    if X_PROVIDER == "official":
+        return official_x.search(X_BEARER_TOKEN, _build_x_search_query(), since_id=since_id, max_results=X_MAX_RESULTS)
     if X_PROVIDER == "agent-reach":
         x_collector_state["configured"] = bool(X_KEYWORDS and x_agent_reach.configured())
         return x_agent_reach.fetch_posts(X_KEYWORDS, X_MAX_RESULTS)
@@ -629,6 +640,7 @@ def _normalize_x_post(item: dict[str, Any]) -> DetectionRequest | None:
         post_text=post_text[:MAX_TEXT_LENGTH],
         post_url=post_url,
         timestamp=str(item.get("createdAt", "")).strip() or None,
+        publisher_id=str(item.get("publisher_id", "")).strip() or None,
     )
 
 
@@ -1012,7 +1024,7 @@ def start_facebook_collector() -> None:
     collector_stop.clear()
     scoped_collectors.start(collector_stop, lambda payload: _detect_and_forward(DetectionRequest(**payload)), _load_seen_post_ids, _save_seen_post_ids)
     social_collectors.start(collector_stop, lambda payload: _detect_and_forward(DetectionRequest(**payload)), _load_seen_post_ids, _save_seen_post_ids)
-    if X_KEYWORDS and (X_PROVIDER == "agent-reach" or x_collector_state["configured"]):
+    if X_KEYWORDS and (X_PROVIDER == "agent-reach" or x_collector_state["configured"]) and (X_PROVIDER != "official" or X_OFFICIAL_POLLING_ENABLED):
         collector_stop.clear()
         x_collector_thread = threading.Thread(target=_x_collector, name="agent-reach-x-collector", daemon=True)
         x_collector_thread.start()
@@ -1101,6 +1113,8 @@ def health() -> dict[str, Any]:
         "apify_posts_processed_total": apify_collector_state["posts_processed_total"],
         "apify_platform_errors": apify_collector_state["platform_errors"],
         "x_provider": X_PROVIDER,
+        "x_official_api_configured": bool(X_BEARER_TOKEN),
+        "x_official_polling_enabled": X_OFFICIAL_POLLING_ENABLED,
         "x_poll_seconds": X_POLL_SECONDS,
         "x_collector_configured": x_collector_state["configured"],
         "x_collector_running": x_collector_state["running"],
@@ -1162,3 +1176,31 @@ def detect(post: DetectionRequest) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("NLP model initialization failed")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/classify", dependencies=[Depends(require_collector_token)])
+def classify_only(post: DetectionRequest) -> dict[str, Any]:
+    """Authenticated inference test; never writes sample reports to the PHP API."""
+    try:
+        return _detect_and_forward(post, persist=False)
+    except Exception:
+        logger.exception("NLP classification failed")
+        raise HTTPException(status_code=503, detail="Model initialization or inference failed") from None
+
+
+class XSearchTestRequest(BaseModel):
+    scope: str
+
+
+@app.post("/x/search-test", dependencies=[Depends(require_collector_token)])
+def test_official_x(data: XSearchTestRequest) -> dict[str, Any]:
+    """One potentially billable request, at most 10 posts, without report ingestion."""
+    if data.scope not in scoped_collectors.SCOPES:
+        raise HTTPException(status_code=422, detail="Choose a supported LGU")
+    query = '(baha OR flood OR lubog) ' + scoped_collectors.SCOPES[data.scope] + ' -is:retweet'
+    try:
+        result = official_x.search(X_BEARER_TOKEN, query, max_results=10)
+    except official_x.XApiError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from None
+    return {"scope": data.scope, "posts_received": len(result['tweets']),
+            "posts": result['tweets'], "stored": False, "automatic_polling": X_OFFICIAL_POLLING_ENABLED}

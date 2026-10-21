@@ -1,5 +1,7 @@
+import { useMemo, useState } from 'react'
 import PasswordInput from '../components/PasswordInput'
 import { BrandMark, Icon } from '../components/Icon'
+import { searchLocations } from '../locations'
 
 export default function AuthPage({
   mode = 'signup',
@@ -20,6 +22,9 @@ export default function AuthPage({
   notice,
   busy,
 }) {
+  const [locationQuery, setLocationQuery] = useState('')
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false)
+  const matchingLocations = useMemo(() => searchLocations(locationQuery).slice(0, 8), [locationQuery])
   if (mode === 'verify') {
     return (
       <div className="phone-screen auth-screen login-screen">
@@ -105,7 +110,7 @@ export default function AuthPage({
       </div>
 
       <div className="top-banner">
-        <div className="logo-inline">
+        <div className="logo-inline signup-brand">
           <BrandMark />
           <span>BANTALA</span>
         </div>
@@ -155,19 +160,39 @@ export default function AuthPage({
 
         <div className="field-block">
           <label htmlFor="signup-location">Desired Location</label>
-          <div className="input-wrap">
+          <div className="input-wrap signup-location-search">
             <Icon className="field-icon" name="pin" size={17} />
-            <select
+            <input
               id="signup-location"
-              value={signupForm.selected_location}
-              onChange={(e) => onSignupFieldChange('selected_location', e.target.value)}
+              type="search"
+              autoComplete="off"
+              placeholder="Type your city or municipality"
+              value={locationQuery || supportedLocations.find(location => location.id === signupForm.selected_location)?.name || ''}
+              onFocus={() => setLocationMenuOpen(true)}
+              onChange={(e) => {
+                setLocationQuery(e.target.value)
+                setLocationMenuOpen(true)
+                onSignupFieldChange('selected_location', '')
+              }}
+              aria-autocomplete="list"
+              aria-expanded={locationMenuOpen && Boolean(locationQuery.trim())}
+              aria-controls="signup-location-options"
               required
-            >
-              <option value="">Select your location</option>
-              {supportedLocations.map((location) => (
-                <option key={location.id} value={location.id}>{location.name}</option>
-              ))}
-            </select>
+            />
+            {locationMenuOpen && locationQuery.trim() && (
+              <div className="location-suggestions" id="signup-location-options" role="listbox">
+                {matchingLocations.length ? matchingLocations.map(location => (
+                  <button key={location.id} type="button" role="option" aria-selected={signupForm.selected_location === location.id}
+                    onClick={() => {
+                      onSignupFieldChange('selected_location', location.id)
+                      setLocationQuery(location.name)
+                      setLocationMenuOpen(false)
+                    }}>
+                    <strong>{location.name}</strong><span>{location.province || location.region}</span>
+                  </button>
+                )) : <p>No matching city or municipality.</p>}
+              </div>
+            )}
           </div>
         </div>
 

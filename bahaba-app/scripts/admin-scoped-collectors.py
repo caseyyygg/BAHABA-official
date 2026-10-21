@@ -18,6 +18,20 @@ states = {}
 worker = None
 
 
+class CollectionError(RuntimeError):
+    pass
+
+
+ERROR_MESSAGES = {
+    'login_required': 'Facebook/Threads requires sign-in or verification before search can run.',
+    'rate_limit': 'The platform is rate limiting searches. The collector will retry later.',
+    'no_posts_visible': 'Search loaded, but no readable posts were found. Platform markup or search access may have changed.',
+    'navigation_timeout': 'The platform search page timed out from the hosted collector.',
+    'browser_missing': 'The collector browser executable is unavailable.',
+    'unavailable': 'The hosted browser could not complete the platform search.',
+}
+
+
 def settings():
     from dotenv import dotenv_values
     values = dict(os.environ)
@@ -58,14 +72,14 @@ def fetch(scope, platform, saved):
     temporary.write_text(json.dumps(saved['storage']),encoding='utf-8')
     temporary.chmod(0o600)
     temporary.replace(path)
-    query = quote('(baha OR flood OR lubog) ' + SCOPES[scope],safe='')
+    query = quote('baha ' + SCOPES[scope],safe='')
     target = 'https://www.facebook.com/search/posts/?q='+query if platform == 'Facebook' else 'https://www.threads.com/search?q='+query
     environment = dict(os.environ, BAHABA_SCOPED_BROWSER_STATE=str(path))
     try:
         result = subprocess.run([sys.executable,str(BASE / 'social_browser.py'),platform,target,'20'],env=environment,capture_output=True,encoding='utf-8',timeout=70,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         payload = json.loads(result.stdout)
         if result.returncode or payload.get('error'):
-            raise RuntimeError('Account needs verification or platform search is unavailable')
+            raise CollectionError(payload.get('error') if payload.get('error') in ERROR_MESSAGES else 'unavailable')
         return payload['posts']
     finally:
         path.unlink(missing_ok=True)
@@ -100,6 +114,10 @@ def poll(stop, forward, load, save):
                         forward({'source':platform,'post_id':identity,'post_text':text[:60000], 'post_url':post.get('url'), 'timestamp':post.get('created_at')})
                         seen.add(identity); save(seen,path)
                         state['posts_processed'] += 1
+                except CollectionError as error:
+                    state['last_error'] = ERROR_MESSAGES[str(error)]
+                except subprocess.TimeoutExpired:
+                    state['last_error'] = 'Platform collection exceeded its 70-second time limit.'
                 except Exception:
                     state['last_error'] = 'Collection unavailable. Verify this LGU account and browser service configuration.'
                 finally:

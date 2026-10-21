@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import { CurrentAdvisoriesCard, FloodReportsCard } from '../components/ReportCards'
 import FloodLevelGuide from '../components/FloodLevelGuide'
 import { BrandMark, Icon } from '../components/Icon'
 import LocationScopeSelect from '../components/LocationScopeSelect'
+import { activeCitySignals } from '../cityFloodSignals'
 
 /* ---------- small local glyphs (no dependency on the shared Icon set) ---------- */
 function Glyph({ name, size = 20 }) {
@@ -70,12 +72,16 @@ export default function AlertsPage({
   onLocationChange,
   reports = [],
   nlpEvents = [],
+  cityFloodSignals = {cities:[],pins:[]},
   announcements = [],
   navigation,
   activeNav,
   setActiveNav,
   setScreen,
 }) {
+  const [signalClock, setSignalClock] = useState(Date.now())
+  useEffect(() => { const timer = setInterval(() => setSignalClock(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  const socialAlerts = activeCitySignals(cityFloodSignals, signalClock)
   const cityLabel = selectedCity || 'your selected location'
   const floodItems = [...reports, ...nlpEvents]
   const sortedItems = [...floodItems].sort((a, b) => (severityRank[severityOf(b)] || 0) - (severityRank[severityOf(a)] || 0))
@@ -138,6 +144,10 @@ export default function AlertsPage({
       </header>
 
       <main className="al-body">
+        {socialAlerts.map(city => <section key={city.city_id} className="al-safety-advice" role="status">
+          <strong>Reported flooding in {city.city_name}</strong>
+          <p>{city.event_post_count || city.post_count} flood-related social reports. These reports are not officially verified. Follow local government advisories.</p>
+        </section>)}
         {/* Flood-risk hero card */}
         <section className="al-hero" data-level={riskLevel} role="status" aria-live="polite">
           <span className="al-hero-ic">

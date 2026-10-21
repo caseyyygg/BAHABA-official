@@ -3,6 +3,39 @@ import { map as leafletMap, geoJSON, tileLayer, circleMarker } from './map-vendo
 
 let map, baseTiles, mapIndexRegistry, detailRegistry, selected, currentLocation, areaLayer, selectedLayer, floodLayer;
 let reportPoint = null, pointMarker = null, storedPointLayer = null;
+let signalLayer = null, signalRequest = 0;
+
+async function refreshFloodSignals() {
+  if (!map || !currentLocation) return;
+  const own = ++signalRequest, scope = currentLocation;
+  try {
+    const endpoint = ['localhost','127.0.0.1'].includes(location.hostname) ? '/api.php' : '/admin-api.php';
+    const response = await fetch(endpoint+'?'+new URLSearchParams({action:'nlp-progress',location:scope}), {credentials:'include',cache:'no-store'});
+    if (!response.ok) throw Error('Flood signal status unavailable');
+    const data = await response.json();
+    if (own!==signalRequest || scope!==currentLocation) return;
+    const features = (data.pins || []).flatMap(pin => {
+      const boundary = currentFeatures.find(feature => String(feature.id)===String(pin.barangay_feature_id));
+      if (!boundary) return [];
+      const geometry = pin.latitude!=null && pin.longitude!=null ? {type:'Point',coordinates:[Number(pin.longitude),Number(pin.latitude)]} : boundary.geometry;
+      return geometry ? [{type:'Feature',geometry,properties:pin}] : [];
+    });
+    if (scopeBoundary && (data.cities || []).some(city => city.phase==='ACTIVE' && Date.parse(city.last_post_at.replace(' ','T')+'Z')+3600000>Date.now())) {
+      features.push({...scopeBoundary,properties:{label:currentLocation,precision_level:'city',post_count:(data.cities || []).reduce((sum,city)=>sum+Number(city.event_post_count || 0),0),severity:'Unconfirmed',latest_post_at:(data.cities || []).map(city=>city.last_post_at).sort().at(-1)}});
+    }
+    if (!signalLayer) signalLayer = geoJSON(collection([]), {
+      style: {color:'#2563eb',weight:3,fill:false},
+      pointToLayer: (feature,latlng)=>circleMarker(latlng,{radius:9,color:'#a16207',dashArray:'4 3',fillColor:'#fbbf24',fillOpacity:.8}),
+      onEachFeature(feature,layer) {
+        const node=document.createElement('div'), p=feature.properties;
+        node.textContent=`REPORTED FLOODING — not officially verified. ${p.label} (${p.precision_level}). ${p.post_count} associated posts. Severity: ${p.severity}. Latest: ${p.latest_post_at} UTC.`;
+        layer.bindPopup(node);
+      },
+    }).addTo(map);
+    signalLayer.clearLayers().addData(collection(features));
+  } catch { if (own===signalRequest) signalLayer?.clearLayers(); }
+}
+setInterval(()=>{ if(document.getElementById('lgu-report-map')?.offsetParent) refreshFloodSignals(); },30000);
 let requestNumber = 0;
 let currentFeatures = [];
 let currentBarangays = [];
@@ -220,9 +253,11 @@ window.addEventListener('bahaba-reports-map', async (event) => {
     scopeBoundary = borders.features.find(feature => feature.id === locationId);
     const changed = currentLocation !== locationId;
     currentLocation = locationId;
+    signalLayer?.clearLayers();
     currentReports = reports || [];
     currentFeatures = geometry.features.filter(feature => feature.properties.city === (location.map_city || location.city) &&
       (!location.map_municipality || feature.properties.municipality === location.map_municipality));
+    refreshFloodSignals();
     currentBarangays = currentFeatures.length ? currentFeatures : (barangayDirectory.locations?.[locationId] || []).map((name) => ({ id: name, properties: { name }, geometry: null }));
     document.getElementById('lgu-report-map-scope').textContent = location.name;
     if (changed) {

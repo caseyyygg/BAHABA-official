@@ -1,4 +1,48 @@
 /* Shared typography and spacing for approval, connections, and history. */
+.sb-link.disabled,
+.sb-link.disabled:hover { color: var(--slate-400); }
+.sb-link.disabled .sb-lock { color: var(--slate-400); opacity: .8; }
+#app-user-profile-modal { overflow-y:auto; }
+#app-user-profile-modal > div {
+  width:min(600px,100%) !important;
+  max-height:min(88vh,820px);
+  overflow-y:auto;
+  background:#fff !important;
+  border:1px solid var(--line) !important;
+  border-radius:18px !important;
+  box-shadow:0 24px 64px rgba(10,30,60,.24) !important;
+  color:var(--ink) !important;
+}
+#app-user-profile-modal > div > div:first-child { border-bottom:1px solid var(--line) !important; }
+#app-user-profile-modal h3 { color:var(--ink) !important; }
+#app-user-profile-content { color:var(--ink-soft); line-height:1.6; }
+#app-user-edit-form label { display:block; color:var(--ink-soft); font-size:12px; font-weight:650; }
+#app-user-edit-form input, #app-user-edit-form select {
+  display:block;
+  width:100%;
+  min-height:44px;
+  margin-top:7px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#fff;
+  color:var(--ink);
+  font:400 14px/1.4 Inter,system-ui,sans-serif;
+}
+#app-user-edit-form input:focus-visible, #app-user-edit-form select:focus-visible { outline:2px solid var(--blue-100); outline-offset:1px; border-color:var(--blue-500); }
+.admin-account-editor[hidden] { display:none; }
+.admin-account-editor { position:fixed; inset:0; z-index:220; display:grid; place-items:center; overflow-y:auto; padding:24px; background:rgba(8,15,30,.56); }
+.admin-account-editor__dialog { width:min(540px,100%); max-height:calc(100vh - 48px); overflow-y:auto; border:1px solid var(--line); border-radius:18px; background:#fff; color:var(--ink); box-shadow:0 24px 64px rgba(10,30,60,.24); }
+.admin-account-editor__dialog header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 24px; border-bottom:1px solid var(--line); }
+.admin-account-editor__dialog header p { margin:0 0 5px; color:var(--ink-faint); font-size:10px; font-weight:700; letter-spacing:.1em; }
+.admin-account-editor__dialog h2 { margin:0; color:var(--ink); font:700 19px/1.3 'Space Grotesk',Inter,system-ui,sans-serif; }
+.admin-account-editor__dialog form { display:grid; gap:16px; padding:22px 24px 24px; }
+.admin-account-editor__dialog label { display:grid; gap:7px; color:var(--ink-soft); font-size:12px; font-weight:650; }
+.admin-account-editor__dialog input, .admin-account-editor__dialog select { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); font:400 14px/1.4 Inter,system-ui,sans-serif; }
+.admin-account-editor__dialog input[readonly] { background:var(--mist-100); color:var(--ink-soft); }
+.admin-account-editor__dialog footer { display:flex; justify-content:flex-end; gap:10px; padding-top:4px; }
+.admin-account-editor__error { min-height:0; margin:0; color:var(--coral-600); font-size:12px; }
+@media(max-width:600px) { .admin-account-editor { padding:12px; } .admin-account-editor__dialog header,.admin-account-editor__dialog form { padding-left:18px; padding-right:18px; } }
 #view-users .panel { overflow:hidden; }
 #view-users .panel-head { padding:20px 24px; gap:16px; }
 #view-users .panel-head h3 { font:600 15px/1.5 Inter,system-ui,sans-serif; }

@@ -21,6 +21,18 @@ if($u) $seed->execute([$email,$u['password_hash'],$u['username'],'lgu',$city,nul
 foreach([['miguel.torres@bahaba.ph','Bahaba@2026','Miguel Torres','team','Metro Manila (All Cities)',null],['elena.villareal@malabon.gov.ph','Concepcion@2026','Elena Villareal','lgu','Malabon City','Concepcion'],['qc.admin@quezoncity.gov.ph','Batasan@2026','Marco Rivera','lgu','Quezon City','Batasan Hills']] as $a){
 $q=$p->prepare('SELECT id FROM admin_access_requests WHERE email=?');$q->execute([$a[0]]);if(!$q->fetchColumn())$seed->execute([$a[0],password_hash($a[1],PASSWORD_DEFAULT),$a[2],$a[3],$a[4],$a[5],null,null,'active']);
 }
+$testEmail='pampanga.lgu.test@example.com';
+$q=$p->prepare('SELECT id FROM admin_access_requests WHERE email=?');$q->execute([$testEmail]);
+if(!$q->fetchColumn())$seed->execute([$testEmail,password_hash('PampangaTest!26',PASSWORD_DEFAULT),'Pampanga LGU','lgu','Pampanga',null,'pampanga',null,'active']);
+foreach([
+    ['navotas.lgu.test@example.com','NavotasTest!26','Navotas LGU','City of Navotas','1380900000','1380900000'],
+    ['malabon.lgu.test@example.com','MalabonTest!26','Malabon LGU','City of Malabon','1380400000','1380400000'],
+    ['marikina.lgu.test@example.com','MarikinaTest!26','Marikina LGU','City of Marikina','1380700000','1380700000'],
+    ['bulacan.lgu.test@example.com','BulacanTest!26','Bulacan LGU','Bulacan','bulacan',null],
+] as [$email,$password,$name,$city,$assignedLocation,$psgcId]){
+    $q=$p->prepare('SELECT id FROM admin_access_requests WHERE email=?');$q->execute([$email]);
+    if(!$q->fetchColumn())$seed->execute([$email,password_hash($password,PASSWORD_DEFAULT),$name,'lgu',$city,null,$assignedLocation,$psgcId,'active']);
+}
 function publicAccount(array $u): array {
 $team=$u['role']==='team';return ['id'=>$u['id'],'email'=>$u['email'],'name'=>$u['name'],'initials'=>strtoupper(substr($u['name'],0,2)),'org'=>$team?'BAHABA Team':($u['barangay']?'Brgy. '.$u['barangay']:'LGU').' · '.$u['city'],'role'=>$u['role'],'city'=>$u['city'],'barangay'=>$u['barangay'],'assigned_location'=>$u['assigned_location'],'assigned_psgc_id'=>$u['assigned_psgc_id'],'status'=>$u['status'],'acls'=>['admin_overview'=>$team?'full':'view','announcements'=>$team?'full':'edit','products'=>$team?'full':'edit','approval_board'=>$team?'full':'edit','approval_board_hr'=>$team?'full':'no_access']];
 }

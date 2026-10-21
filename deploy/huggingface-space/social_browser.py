@@ -128,7 +128,7 @@ def threads_posts(markup, target):
 
 
 def collect(source, target, limit=20):
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout
     target = checked_url(source, target)
     state = Path(__import__('os').environ['BAHABA_SCOPED_BROWSER_STATE']) if __import__('os').environ.get('BAHABA_SCOPED_BROWSER_STATE') else BASE / '.state' / f'{source.lower()}-browser.json'
     if source == 'Facebook':
@@ -143,10 +143,18 @@ def collect(source, target, limit=20):
         try:
             context = browser.new_context(storage_state=str(state) if state.is_file() else None, locale='en-US')
             page = context.new_page()
-            response = page.goto(target, wait_until='domcontentloaded', timeout=30000)
+            response = page.goto(target, wait_until='commit', timeout=20000)
             if response and response.status in {401,403,429}:
                 raise RuntimeError('rate_limit' if response.status == 429 else 'login_required')
-            page.wait_for_timeout(3500)
+            # Slow background resources must not prevent inspection of rendered posts.
+            try:
+                if source == 'Facebook':
+                    page.locator('[role="article"], .userContentWrapper, input[type="password"]:visible').first.wait_for(state='visible', timeout=12000)
+                else:
+                    page.wait_for_load_state('domcontentloaded', timeout=12000)
+            except BrowserTimeout:
+                pass
+            page.wait_for_timeout(1500)
             if any(part in urlparse(page.url).path for part in ['/login', '/checkpoint', '/challenge']):
                 raise RuntimeError('login_required')
             # Threads retains sign-up/footer copy even on readable search pages.
@@ -201,5 +209,9 @@ if __name__ == '__main__':
             print(json.dumps({'posts':collect(sys.argv[1], sys.argv[2], int(sys.argv[3]))}, ensure_ascii=False))
         except Exception as exc:
             code = str(exc) if str(exc) in {'login_required','rate_limit','no_posts_visible'} else 'unavailable'
+            if type(exc).__name__ == 'TimeoutError':
+                code = 'navigation_timeout'
+            elif "Executable doesn't exist" in str(exc) or 'BrowserType.launch' in str(exc):
+                code = 'browser_missing'
             print(json.dumps({'error':code}))
             sys.exit(1)

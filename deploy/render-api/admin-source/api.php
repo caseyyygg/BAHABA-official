@@ -53,6 +53,7 @@ if (!is_file($sharedApiDirectory . '/config.php')) {
 $config = require $sharedApiDirectory . '/config.php';
 require_once $sharedApiDirectory . '/location_helpers.php';
 require_once $sharedApiDirectory . '/psgc.php';
+require_once $sharedApiDirectory . '/push.php';
 require_once __DIR__ . '/nlp-location.php';
 require_once __DIR__ . '/report-point.php';
 $nlpIngestToken = (string) ($config['nlp_ingest_token'] ?? '');
@@ -103,6 +104,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
 )");
 
 bahaba_ensure_location_schema($pdo);
+bahaba_ensure_psgc_schema($pdo);
+bahaba_ensure_push_schema($pdo);
 bahaba_ensure_column($pdo, 'evacuation_centers', 'created_by_admin_id', 'BIGINT UNSIGNED NULL');
 bahaba_ensure_column($pdo, 'evacuation_centers', 'map_link', "VARCHAR(1000) NOT NULL DEFAULT ''");
 $pdo->exec("CREATE TABLE IF NOT EXISTS barangay_affected_residents (
@@ -145,7 +148,7 @@ function requested_location(array $admin, mixed $value): array
     }
 
     $locationId = bahaba_normalize_location_id(is_string($value) ? $value : null);
-    if (!$locationId) {
+    if (!$locationId || !bahaba_luzon_location_by_id($locationId)) {
         http_response_code(422);
         echo json_encode(['error' => 'Choose one of the supported locations.']);
         exit;
@@ -233,6 +236,7 @@ if (!empty($_SESSION['admin_id'])) {
 require_once __DIR__ . '/report-management.php';
 require_once __DIR__ . '/team-deployments.php';
 require_once __DIR__ . '/social-accounts.php';
+require_once __DIR__ . '/trusted-publishers.php';
 require_once __DIR__ . '/collected-history.php';
 if ($action === 'forgot-password' && $method === 'POST') {
     bahaba_password_request($pdo,$config,'admin',$input,($config['admin_api_url']??rtrim($config['admin_url']??'http://localhost:8001','/').'/api.php').'?action=reset-password',$sharedApiDirectory.'/vendor');
@@ -269,7 +273,7 @@ if ($method === 'GET' && $action === 'health') {
 }
 
 if ($method === 'GET' && $action === 'locations') {
-    $nationwide = array_map(fn($l) => array_merge($l, ['aliases'=>[], 'map_city'=>$l['city'], 'map_municipality'=>'']), bahaba_psgc_locations());
+    $nationwide = array_map(fn($l) => array_merge($l, ['aliases'=>[], 'map_city'=>$l['city'], 'map_municipality'=>'']), array_values(array_filter(bahaba_psgc_locations(), fn($l) => bahaba_psgc_is_luzon((string)($l['id'] ?? '')))));
     echo json_encode(['locations' => array_merge(bahaba_supported_locations(), $nationwide)]);
     exit;
 }
@@ -479,7 +483,7 @@ if ($method === 'GET' && $action === 'all-reports') {
     exit;
 }
 
-if ($method === 'GET' && $action === 'nlp-events') {
+if ($method === 'GET' && in_array($action, ['nlp-events', 'nlp-progress', 'nlp-posts'], true)) {
     if (empty($_SESSION['admin_id'])) {
         http_response_code(401);
         echo json_encode(['error' => 'Admin session required.']);
@@ -492,6 +496,11 @@ if ($method === 'GET' && $action === 'nlp-events') {
         echo json_encode(['error' => 'Admin account is unavailable.']);
         exit;
     }
+    if (!is_platform_admin($admin)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'The NLP API is available to platform administrators only.']);
+        exit;
+    }
     $permission = strtolower((string) ($admin['acls']['approval_board'] ?? 'no_access'));
     if (($admin['status'] ?? '') !== 'active' || !in_array($permission, ['full', 'edit', 'view'], true)) {
         http_response_code(403);
@@ -499,7 +508,7 @@ if ($method === 'GET' && $action === 'nlp-events') {
         exit;
     }
 
-    $where = 'WHERE received_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
+    $where = $action === 'nlp-posts' ? 'WHERE 1=1' : 'WHERE received_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
     $params = [];
     if (!is_platform_admin($admin) || $permission !== 'full') {
         $location = requested_location($admin, $admin['assigned_location'] ?? $admin['city'] ?? null);
@@ -528,14 +537,28 @@ if ($method === 'GET' && $action === 'nlp-events') {
         }
     }
 
+    if ($action === 'nlp-progress') {
+        require_once __DIR__.'/nlp-flood-events.php';
+        $selected = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? null);
+        $city = bahaba_flood_city($selected['id'] ?? null);
+        $snapshot = $city ? bahaba_flood_snapshot($pdo,$city['id']) : ['required_posts'=>15,'window_minutes'=>20,'inactivity_minutes'=>60,'cities'=>[],'pins'=>[]];
+        if (!is_platform_admin($admin) && !empty($admin['barangay']) && $admin['barangay']!=='All barangays') {
+            $snapshot['pins']=array_values(array_filter($snapshot['pins'],fn($pin)=>$pin['precision_level']==='barangay' && $pin['label']===$admin['barangay']));
+        }
+        $snapshot['note']='Reported flooding, not official verification. City alerts expire after 60 minutes without a new valid publication. Historical events and pins are preserved.';
+        echo json_encode($snapshot);
+        exit;
+    }
     $limit = min(100, max(1, (int) ($_GET['limit'] ?? 50)));
+    $offset = $action === 'nlp-posts' ? max(0, min(10000000, (int) ($_GET['offset'] ?? 0))) : 0;
     $eventsStmt = $pdo->prepare(
         'SELECT id, source, source_post_id, post_text, post_url, location, city, barangay, classification,
                 severity, urgency, confidence_percent, detected_at, received_at
-         FROM nlp_events ' . $where . ' ORDER BY detected_at DESC, id DESC LIMIT :limit'
+         FROM nlp_events ' . $where . ' ORDER BY detected_at DESC, id DESC LIMIT :limit OFFSET :offset'
     );
     foreach ($params as $key => $value) $eventsStmt->bindValue($key, $value);
     $eventsStmt->bindValue('limit', $limit, PDO::PARAM_INT);
+    $eventsStmt->bindValue('offset', $offset, PDO::PARAM_INT);
     $eventsStmt->execute();
 
     $statsStmt = $pdo->prepare(
@@ -561,6 +584,7 @@ if ($method === 'GET' && $action === 'nlp-events') {
             'avgConfidence' => round((float) ($stats['avg_confidence'] ?? 0), 1),
         ],
         'ingestionConfigured' => $nlpIngestionConfigured,
+        'pagination' => ['offset'=>$offset, 'limit'=>$limit, 'total'=>(int)($stats['total']??0)],
         'serverTime' => date(DATE_ATOM),
     ]);
     exit;
@@ -614,7 +638,7 @@ if ($method === 'POST') {
         $email = strtolower(trim((string) ($input['email'] ?? '')));
         $password = (string) ($input['password'] ?? '');
         $locationId = bahaba_normalize_location_id((string) ($input['assigned_location'] ?? ''));
-        $location = $locationId ? bahaba_location_by_id($locationId) : null;
+        $location = $locationId ? bahaba_luzon_location_by_id($locationId) : null;
         if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8 || !$location) {
             http_response_code(422);
             echo json_encode(['error' => 'Provide a valid name, email, password, and supported LGU location.']);
@@ -907,6 +931,7 @@ if ($method === 'POST') {
         requested_location($admin, $reportLocation);
         $statement = $pdo->prepare('UPDATE reports SET status = :status WHERE id = :id');
         $statement->execute(['status' => $status, 'id' => $reportId]);
+        if ($status === 'verified') bahaba_send_resident_push($pdo, 'flood', $reportId);
         echo json_encode(['success' => true]);
         exit;
     }
@@ -942,6 +967,7 @@ if ($method === 'POST') {
         requested_location($admin, $announcementLocation);
         $statement = $pdo->prepare('UPDATE announcements SET status = :status WHERE id = :id');
         $statement->execute(['status' => $announcementStatus, 'id' => $announcementId]);
+        if ($announcementStatus === 'published') bahaba_send_resident_push($pdo, 'advisory', $announcementId);
         echo json_encode(['success' => true]);
         exit;
     }
@@ -977,6 +1003,7 @@ if ($method === 'POST') {
             'body' => $body,
             'status' => $status,
         ]);
+        if ($status === 'published') bahaba_send_resident_push($pdo, 'advisory', (int) $pdo->lastInsertId());
         http_response_code(201);
         echo json_encode(['success' => true, 'id' => (int) $pdo->lastInsertId()]);
         exit;
@@ -1082,7 +1109,7 @@ if ($method === 'POST') {
         ]);
         $eventId=(int)$pdo->lastInsertId();
         require_once __DIR__.'/nlp-threshold.php';
-        $threshold=$classification==='flood'?bahaba_nlp_threshold($pdo,$locationId,$barangay):['required_posts'=>20,'window_minutes'=>15,'eligible_posts'=>0,'report_id'=>null];
+        $threshold=$classification==='flood'?bahaba_nlp_threshold($pdo,$locationId,$barangay):['required_posts'=>15,'window_minutes'=>20,'eligible_posts'=>0,'report_id'=>null];
         http_response_code(201);
         echo json_encode(['success'=>true,'id'=>$eventId,'pin_threshold'=>$threshold]);
         exit;
@@ -1181,7 +1208,7 @@ if ($method === 'POST') {
                     exit;
                 }
             }
-            $location = $assignedLocation ? bahaba_location_by_id($assignedLocation) : null;
+            $location = $assignedLocation ? bahaba_luzon_location_by_id($assignedLocation) : null;
             $acls = [
                 'admin_overview' => $role === 'platform-admin' ? 'full' : 'view',
                 'announcements' => $role === 'platform-admin' ? 'full' : 'edit',
@@ -1210,6 +1237,12 @@ if ($method === 'POST') {
 
         if ($mode === 'update') {
             $email = strtolower(trim((string) ($input['email'] ?? '')));
+            $nextEmail = strtolower(trim((string) ($input['new_email'] ?? $email)));
+            if (!filter_var($nextEmail, FILTER_VALIDATE_EMAIL)) {
+                http_response_code(422);
+                echo json_encode(['error' => 'Provide a valid email address.']);
+                exit;
+            }
             $existingStatement = $pdo->prepare('SELECT role, city, assigned_location FROM admin_users WHERE email = :email LIMIT 1');
             $existingStatement->execute(['email' => $email]);
             $existing = $existingStatement->fetch();
@@ -1220,6 +1253,7 @@ if ($method === 'POST') {
             }
             $update = [];
             $params = ['email' => $email];
+            $locationChangeRequested = isset($input['role']) || isset($input['assigned_location']) || isset($input['city']);
 
             if (isset($input['status']) && in_array($input['status'], ['active', 'disabled', 'pending'], true)) {
                 $update[] = 'status = :status';
@@ -1235,6 +1269,14 @@ if ($method === 'POST') {
                 }
                 $update[] = 'role = :role';
                 $params['role'] = $role;
+                $update[] = 'acls = :acls';
+                $params['acls'] = json_encode([
+                    'admin_overview' => $role === 'platform-admin' ? 'full' : 'view',
+                    'announcements' => $role === 'platform-admin' ? 'full' : 'edit',
+                    'products' => $role === 'platform-admin' ? 'full' : 'edit',
+                    'approval_board' => $role === 'platform-admin' ? 'full' : 'edit',
+                    'approval_board_hr' => $role === 'platform-admin' ? 'full' : 'no_access',
+                ], JSON_THROW_ON_ERROR);
             } else {
                 $role = $existing['role'];
             }
@@ -1244,6 +1286,18 @@ if ($method === 'POST') {
                 $params['name'] = trim((string) $input['name']);
             }
 
+            if ($nextEmail !== $email) {
+                $collision = $pdo->prepare('SELECT email FROM admin_users WHERE email = :admin_email UNION ALL SELECT email FROM users WHERE email = :user_email LIMIT 1');
+                $collision->execute(['admin_email' => $nextEmail, 'user_email' => $nextEmail]);
+                if ($collision->fetch()) {
+                    http_response_code(409);
+                    echo json_encode(['error' => 'Another account already uses this email address.']);
+                    exit;
+                }
+                $update[] = 'email = :new_email';
+                $params['new_email'] = $nextEmail;
+            }
+
             if ($role === 'lgu-admin') {
                 $locationId = bahaba_normalize_location_id((string) ($input['assigned_location'] ?? $input['city'] ?? $existing['assigned_location'] ?? $existing['city']));
                 if (!$locationId) {
@@ -1251,7 +1305,7 @@ if ($method === 'POST') {
                     echo json_encode(['error' => 'Choose a supported assigned location for this LGU account.']);
                     exit;
                 }
-                $location = bahaba_location_by_id($locationId);
+                $location = bahaba_luzon_location_by_id($locationId);
                 $update[] = 'city = :city';
                 $update[] = 'assigned_location = :assigned_location';
                 $params['city'] = $location['city'];
@@ -1283,6 +1337,45 @@ if ($method === 'POST') {
             echo json_encode(['success' => true, 'deleted' => $stmt->rowCount() > 0]);
             exit;
         }
+    }
+
+    if ($action === 'app-user-update') {
+        $admin = current_admin($pdo);
+        if (!$admin || !is_platform_admin($admin)) {
+            http_response_code($admin ? 403 : 401);
+            echo json_encode(['error' => 'Platform admin access required.']);
+            exit;
+        }
+        $userId = (int) ($input['user_id'] ?? 0);
+        $email = strtolower(trim((string) ($input['email'] ?? '')));
+        $newEmail = strtolower(trim((string) ($input['new_email'] ?? '')));
+        $username = trim((string) ($input['username'] ?? ''));
+        if (!$userId || !filter_var($newEmail, FILTER_VALIDATE_EMAIL) || $username === '' || strlen($username) > 150) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Provide a user ID, full name, and valid email address.']);
+            exit;
+        }
+        $user = $pdo->prepare('SELECT id, email FROM users WHERE id = :id LIMIT 1');
+        $user->execute(['id' => $userId]);
+        $existingUser = $user->fetch();
+        if (!$existingUser || strtolower((string) $existingUser['email']) !== $email) {
+            http_response_code(404);
+            echo json_encode(['error' => 'App user not found. Refresh and try again.']);
+            exit;
+        }
+        if ($newEmail !== $email) {
+            $collision = $pdo->prepare('SELECT email FROM admin_users WHERE email = :admin_email UNION ALL SELECT email FROM users WHERE email = :user_email LIMIT 1');
+            $collision->execute(['admin_email' => $newEmail, 'user_email' => $newEmail]);
+            if ($collision->fetch()) {
+                http_response_code(409);
+                echo json_encode(['error' => 'Another account already uses this email address.']);
+                exit;
+            }
+        }
+        $update = $pdo->prepare('UPDATE users SET email = :email, username = :username WHERE id = :id');
+        $update->execute(['email' => $newEmail, 'username' => $username, 'id' => $userId]);
+        echo json_encode(['success' => true]);
+        exit;
     }
 
     if (($action ?? $input['type'] ?? null) === 'app-user-delete') {

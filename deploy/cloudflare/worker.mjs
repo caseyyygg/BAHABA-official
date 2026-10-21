@@ -1,4 +1,4 @@
-const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'location-data.php', 'map-reports.php', 'notifications.php', 'resolve-location.php', 'signup.php', 'resend-verification.php', 'verify.php'])
+const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'location-data.php', 'map-reports.php', 'notifications.php', 'resolve-location.php', 'signup.php', 'resend-verification.php', 'verify.php', 'push-device.php'])
 
 export default {
   async fetch(request, env) {
@@ -31,6 +31,14 @@ export default {
     }
     const responseHeaders = new Headers(upstream.headers)
     responseHeaders.set('Cache-Control', 'no-store')
+    // The API's private config may still name the retired BahaBa Pages origin.
+    // Serve credentialed API responses to the active production Pages origin.
+    const requestOrigin = request.headers.get('Origin')
+    if (requestOrigin === 'https://bantalafloodapp.pages.dev' && requestOrigin === url.origin) {
+      responseHeaders.set('Access-Control-Allow-Origin', requestOrigin)
+      responseHeaders.set('Access-Control-Allow-Credentials', 'true')
+      responseHeaders.append('Vary', 'Origin')
+    }
     // Cookies belong to the public Pages hostname, with HTTPS required.
     responseHeaders.delete('set-cookie')
     for (const cookie of upstream.headers.getSetCookie()) {

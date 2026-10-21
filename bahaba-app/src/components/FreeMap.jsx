@@ -3,6 +3,7 @@ import { Map as LibreMap, LngLatBounds, Popup, Marker, setWorkerUrl } from 'mapl
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { floodPointsFor } from '../floodMap'
+import { LUZON_CAMERA } from '../mapCamera'
 import './floodPings.css'
 
 setWorkerUrl(workerUrl)
@@ -53,8 +54,9 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
       map = new LibreMap({
         container: container.current,
         style: 'https://tiles.openfreemap.org/styles/liberty',
-        center: [121, 14.6],
-        zoom: 11,
+        // Start with the Luzon island group visible; users can zoom and pan
+        // to their preferred city after the overview has loaded.
+        ...LUZON_CAMERA,
         attributionControl: { compact: true },
       })
       mapRef.current = map
@@ -73,8 +75,8 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
       }
       syncPingsRef.current = syncPings
       const padding = { top: 120, right: 24, bottom: 190, left: 24 }
-      const bounds = boundsForFeatures(features)
-      if (!bounds.isEmpty()) map.fitBounds(bounds, { padding, duration: 0 })
+      // Do not replace the overview with the selected municipality on load.
+      // Search and location controls remain available for deliberate navigation.
       let selectedFeature = null
       const highlightData = () => ({
         type: 'FeatureCollection',

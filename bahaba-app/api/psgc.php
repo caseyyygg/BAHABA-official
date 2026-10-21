@@ -17,6 +17,32 @@ function bahaba_psgc_by_id(string $id): ?array
     return $index[$id] ?? null;
 }
 
+function bahaba_psgc_is_luzon(string $id): bool
+{
+    $location = bahaba_psgc_by_id($id);
+    if (!$location) return false;
+    return in_array($location['region'] ?? '', [
+        'Region I', 'Region II', 'Region III', 'Region IV-A',
+        'MIMAROPA Region', 'Region V', 'National Capital Region',
+        'Cordillera Administrative Region',
+    ], true);
+}
+
+function bahaba_luzon_location_by_id(string $id): ?array
+{
+    $location = bahaba_location_by_id($id);
+    if (!$location) return null;
+    $psgcId = (string) ($location['id'] ?? '');
+    if (bahaba_psgc_is_luzon($psgcId) || in_array($location['region'] ?? '', [
+        'Region I', 'Region II', 'Region III', 'Central Luzon', 'Region IV-A',
+        'MIMAROPA Region', 'Region V', 'National Capital Region',
+        'Cordillera Administrative Region',
+    ], true)) return $location;
+    // Preserve supported legacy city IDs by resolving their explicit PSGC mapping.
+    $legacyPsgc = bahaba_legacy_psgc($psgcId);
+    return $legacyPsgc && bahaba_psgc_is_luzon($legacyPsgc) ? $location : null;
+}
+
 function bahaba_legacy_psgc(?string $id): ?string
 {
     // Province IDs intentionally have no municipality mapping.
@@ -26,9 +52,10 @@ function bahaba_legacy_psgc(?string $id): ?string
 function bahaba_preferred_locations(array $user): array
 {
     $saved = json_decode($user['preferred_locations'] ?? 'null', true);
-    if (is_array($saved)) return array_values(array_unique(array_filter($saved, fn($id) => is_string($id) && bahaba_psgc_by_id($id))));
+    if (is_array($saved)) return array_values(array_unique(array_filter($saved, fn($id) => is_string($id) && bahaba_psgc_by_id($id) && bahaba_psgc_is_luzon($id))));
     $selected = $user['selected_location'] ?? '';
     $legacy = bahaba_psgc_by_id($selected) ? $selected : bahaba_legacy_psgc($selected);
+    if ($legacy && !bahaba_psgc_is_luzon($legacy)) return [];
     return $legacy ? [$legacy] : [];
 }
 

@@ -11,7 +11,7 @@ $user = $statement->fetch();
 if (!$user) {
     http_response_code(400);
     header_remove('Content-Type');
-    echo '<h1>Activation link is invalid or expired.</h1><p>Return to BAHABA and request a new account.</p>';
+    echo '<h1>Activation link is invalid or expired.</h1><p>Return to BANTALA and request a new account.</p>';
     exit;
 }
 

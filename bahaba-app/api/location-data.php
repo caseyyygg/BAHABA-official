@@ -15,7 +15,7 @@ if (!$user) {
 $locationId = bahaba_normalize_location_id($user['selected_location'] ?? null);
 $preferredIds = bahaba_preferred_locations($user);
 $current = (string) ($_GET['current'] ?? '');
-$currentId = bahaba_psgc_by_id($current) ? $current : null;
+$currentId = bahaba_psgc_by_id($current) && bahaba_psgc_is_luzon($current) ? $current : null;
 $requestedLocation = trim((string) ($_GET['location'] ?? ''));
 if ($requestedLocation !== '') {
     $requestedLocationId = bahaba_normalize_location_id($requestedLocation);
@@ -37,37 +37,41 @@ $scope = $ids ? implode(',', array_fill(0, count($ids), '?')) : 'NULL';
 
 $reportsStatement = $pdo->prepare(
     "SELECT r.id, p.city, p.province, p.id AS psgc_id, r.barangay, r.barangay_feature_id, r.latitude, r.longitude, r.street_name, r.severity, r.description, r.status, r.photo, r.created_at
-     FROM reports r LEFT JOIN locations l ON l.id=r.location_id JOIN psgc_locations p ON p.id=COALESCE(r.psgc_id,l.psgc_id)
+     FROM reports r LEFT JOIN locations l ON BINARY l.id=BINARY r.location_id JOIN psgc_locations p ON BINARY p.id=BINARY COALESCE(r.psgc_id,l.psgc_id)
      WHERE p.id IN ($scope) AND r.status='verified' ORDER BY r.created_at DESC, r.id DESC LIMIT 100"
 );
 $reportsStatement->execute($ids);
 $announcementsStatement = $pdo->prepare(
     "SELECT a.id, p.city, p.province, p.id AS psgc_id, a.barangay, a.title, a.body, a.status, a.created_at
-     FROM announcements a LEFT JOIN locations l ON l.id=a.location_id JOIN psgc_locations p ON p.id=COALESCE(a.psgc_id,l.psgc_id)
+     FROM announcements a LEFT JOIN locations l ON BINARY l.id=BINARY a.location_id JOIN psgc_locations p ON BINARY p.id=BINARY COALESCE(a.psgc_id,l.psgc_id)
      WHERE p.id IN ($scope) AND a.status = 'published' AND a.expires_at > NOW()
      ORDER BY a.created_at DESC, a.id DESC LIMIT 50"
 );
 $announcementsStatement->execute($ids);
 $commandCenterStatement = $pdo->prepare(
     'SELECT c.name, c.hotline, c.telephone, c.mobile_number, c.address, c.email, c.facebook_page, c.emergency_contact, c.other_information, c.updated_at
-     FROM command_centers c LEFT JOIN locations l ON l.id = c.location_id
+     FROM command_centers c LEFT JOIN locations l ON BINARY l.id = BINARY c.location_id
      WHERE c.location_id = :location_id OR l.psgc_id = :psgc_id LIMIT 1'
 );
 $commandCenterStatement->execute(['location_id' => $locationId, 'psgc_id' => $locationId]);
 $evacuationCentersStatement = $pdo->prepare(
     'SELECT e.id, e.city, e.barangay, e.name, e.address, e.map_link, e.capacity, e.evacuees, e.created_at
-     FROM evacuation_centers e LEFT JOIN locations l ON l.id = e.location_id
+     FROM evacuation_centers e LEFT JOIN locations l ON BINARY l.id = BINARY e.location_id
      WHERE e.location_id = :location_id OR l.psgc_id = :psgc_id
      ORDER BY e.barangay, e.name, e.id'
 );
 $evacuationCentersStatement->execute(['location_id' => $locationId, 'psgc_id' => $locationId]);
 
-// Raw NLP content is administrative until reviewed into a verified report.
+require_once __DIR__.'/flood-signals.php';
+$floodSignals=['cities'=>[],'pins'=>[]];
+foreach($ids as $id){$snapshot=bahaba_resident_flood_signals($pdo,$id);$floodSignals['cities']=array_merge($floodSignals['cities'],$snapshot['cities']);$floodSignals['pins']=array_merge($floodSignals['pins'],$snapshot['pins']);}
+// Raw NLP content remains administrative; aggregate signals are explicitly reported, not verified.
 
 respond([
     'selected_location' => $locationId,
     'reports' => $reportsStatement->fetchAll(),
     'nlp_events' => [],
+    'flood_signals'=>$floodSignals,
     'announcements' => $announcementsStatement->fetchAll(),
     'command_center' => $commandCenterStatement->fetch() ?: null,
     'evacuation_centers' => $evacuationCentersStatement->fetchAll(),

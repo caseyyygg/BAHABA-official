@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as BrowserTimeout
 
 ROOT = Path(os.getenv('SESSION_DIRECTORY', '/data/social-sessions')).resolve()
 TOKEN = os.getenv('SOCIAL_BROWSER_TOKEN', '')
@@ -64,6 +64,24 @@ def authenticated(platform, cookies):
     return required[platform].issubset(names)
 
 
+async def fill_login_field(page, platform, operation, text):
+    if not text:
+        raise HTTPException(422, 'Enter the field value first.')
+    # Visible selectors support both Threads and its Instagram sign-in page.
+    if operation == 'fill-password':
+        selector = 'input[type="password"]:visible'
+    else:
+        selector = {
+            'Facebook': 'input[name="email"]:visible, input[autocomplete="username"]:visible',
+            'X': 'input[autocomplete="username"]:visible, input[name="text"]:visible, input[type="email"]:visible',
+            'Threads': 'input[name="username"]:visible, input[autocomplete="username"]:visible, input[type="email"]:visible, input[type="text"]:visible',
+        }[platform]
+    fields = page.locator(selector)
+    if not await fields.count():
+        raise HTTPException(422, 'The requested field is not visible yet. Choose the platform login option or Next, then try again.')
+    await fields.first.fill(text)
+
+
 async def close(key):
     session = sessions.pop(key, None)
     if session:
@@ -91,10 +109,16 @@ async def lifespan(app):
         await browser.close()
 
 
-app = FastAPI(lifespan=lifespan, dependencies=[Depends(authorized)])
+app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 
-@app.get('/accounts/{scope}')
+# Public status exposes no session/account metadata. All API routes retain auth.
+@app.get('/')
+async def status():
+    return {'service': 'BANTALA social browser', 'ready': browser is not None}
+
+
+@app.get('/accounts/{scope}', dependencies=[Depends(authorized)])
 async def accounts(scope: str):
     result = []
     for platform in PLATFORMS:
@@ -103,7 +127,7 @@ async def accounts(scope: str):
     return {'accounts': result}
 
 
-@app.get('/collector-state/{scope}/{platform}')
+@app.get('/collector-state/{scope}/{platform}', dependencies=[Depends(authorized)])
 async def collector_state(scope: str, platform: str):
     # Server-to-server only. The PHP proxy never exposes this route to browsers.
     state = saved_state(scope, platform)
@@ -124,7 +148,7 @@ class Action(BaseModel):
     delta: int = Field(default=0, ge=-1000, le=1000)
 
 
-@app.post('/browser')
+@app.post('/browser', dependencies=[Depends(authorized)])
 async def operate(data: Action):
     path = state_path(data.scope, data.platform)
     key = (data.scope, data.platform)
@@ -144,23 +168,36 @@ async def operate(data: Action):
             if len(sessions) >= 5:
                 raise HTTPException(429, 'All sign-in browsers are busy. Try again shortly.')
             context = await browser.new_context(viewport={'width': 1000, 'height': 720}, accept_downloads=False, service_workers='block')
+            blocked_hosts = set()
+            failed_hosts = set()
             allowed = ('facebook.com', 'fbcdn.net', 'fbsbx.com', 'meta.com', 'x.com',
                        'twitter.com', 'twimg.com', 'threads.com', 'threads.net', 'instagram.com',
-                       'cdninstagram.com', 'google.com', 'gstatic.com', 'hcaptcha.com', 'cloudflare.com')
+                       'cdninstagram.com', 'facebook.net', 'google.com', 'gstatic.com', 'recaptcha.net',
+                       'hcaptcha.com', 'cloudflare.com', 'arkoselabs.com', 'funcaptcha.com')
             async def restrict_network(route):
                 parsed = urlparse(route.request.url)
                 host = parsed.hostname or ''
                 if parsed.scheme == 'https' and any(host == domain or host.endswith('.' + domain) for domain in allowed):
                     await route.continue_()
                 else:
+                    blocked_hosts.add(host)
                     await route.abort()
             await context.route('**/*', restrict_network)
             context.set_default_timeout(10000)
             page = await context.new_page()
-            session = {'context': context, 'page': page, 'owner': data.owner, 'touched': time.monotonic()}
+            page.on('requestfailed', lambda request: failed_hosts.add(urlparse(request.url).hostname or 'unknown'))
+            session = {'context': context, 'page': page, 'owner': data.owner, 'touched': time.monotonic(),
+                       'blocked_hosts': blocked_hosts, 'failed_hosts': failed_hosts}
             sessions[key] = session
             try:
-                await page.goto(PLATFORMS[data.platform], wait_until='domcontentloaded', timeout=20000)
+                # Commit lets us inspect partial pages without waiting on slow assets.
+                navigation = await page.goto(PLATFORMS[data.platform], wait_until='commit', timeout=15000)
+                session['navigation_status'] = navigation.status if navigation else None
+                try:
+                    await page.locator('input:visible, button:visible, [role="button"]:visible').first.wait_for(timeout=10000)
+                except BrowserTimeout:
+                    # Show platform error/challenge pages too; never claim login succeeded.
+                    pass
             except Exception as exc:
                 print(f'Social browser navigation failed ({type(exc).__name__}): {exc}', flush=True)
                 await close(key)
@@ -175,6 +212,8 @@ async def operate(data: Action):
                 session['page'] = page
             if data.operation == 'click':
                 await page.mouse.click(data.x, data.y)
+            elif data.operation in {'fill-identifier', 'fill-password'}:
+                await fill_login_field(page, data.platform, data.operation, data.text)
             elif data.operation == 'credentials':
                 if data.platform != 'Facebook':
                     raise HTTPException(422, 'Automatic sign-in is currently supported for Facebook only. Use the field buttons for this platform.')
@@ -206,6 +245,10 @@ async def operate(data: Action):
             elif data.operation == 'save':
                 if any(part in urlparse(page.url).path.lower() for part in ('checkpoint', 'challenge', 'two_factor', 'login')) or await page.locator('input[type="password"]:visible').count():
                     raise HTTPException(422, 'Finish platform sign-in and any verification before saving.')
+                host = (urlparse(page.url).hostname or '').lower()
+                domains = {'Facebook': ('facebook.com',), 'X': ('x.com','twitter.com'), 'Threads': ('threads.com','threads.net')}[data.platform]
+                if not any(host == domain or host.endswith('.'+domain) for domain in domains):
+                    raise HTTPException(422, 'Return to the selected platform after verification before saving the account.')
                 if not authenticated(data.platform, await session['context'].cookies()):
                     raise HTTPException(422, 'Complete platform sign-in and verification before saving.')
                 path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -219,7 +262,15 @@ async def operate(data: Action):
                 raise HTTPException(422, 'Unsupported browser action')
             await page.wait_for_timeout(200)
             shot = await page.screenshot(type='jpeg', quality=65)
-            return {'image': base64.b64encode(shot).decode(), 'width': 1000, 'height': 720}
+            hint = 'Complete sign-in and verification, then save the account.'
+            if data.platform == 'X':
+                hint = 'Fill your username, choose Next or Enter, then fill your password. Complete any verification before saving.'
+            elif data.platform == 'Threads':
+                hint = 'Choose Use Instagram or your Threads login option, then fill the visible username and password fields. Return to Threads before saving.'
+            return {'login_hint': hint, 'image': base64.b64encode(shot).decode(), 'width': 1000, 'height': 720,
+                    'page_title': await page.title(), 'navigation_status': session.get('navigation_status'),
+                    'blocked_hosts': sorted(session.get('blocked_hosts', set())),
+                    'failed_hosts': sorted(session.get('failed_hosts', set()))}
         except HTTPException:
             raise
         except Exception:

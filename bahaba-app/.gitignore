@@ -13,6 +13,7 @@ dist-ssr
 *.local
 api/config.php
 api/vendor
+android/app/google-services.json
 __pycache__/
 psgc-source.xlsx
 municipal-boundaries.zip

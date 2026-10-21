@@ -1,16 +1,21 @@
 <?php
 
 require __DIR__ . '/bootstrap.php';
-require __DIR__ . '/vendor/autoload.php';
 
-use PHPMailer\PHPMailer\Exception;
+$mailerAutoload = __DIR__ . '/vendor/autoload.php';
+if (!is_file($mailerAutoload)) {
+    error_log('BANTALA signup unavailable: PHPMailer dependency is missing.');
+    respond(['error' => 'Account activation is temporarily unavailable. Please try again later.'], 503);
+}
+require $mailerAutoload;
+
 use PHPMailer\PHPMailer\PHPMailer;
 
 $data = request_json();
 $email = strtolower(trim((string) ($data['email'] ?? '')));
 $username = trim((string) ($data['username'] ?? ''));
 $password = (string) ($data['password'] ?? '');
-$selectedLocation = bahaba_location_by_id((string) ($data['selected_location'] ?? ''));
+$selectedLocation = bahaba_luzon_location_by_id((string) ($data['selected_location'] ?? ''));
 
 if (!preg_match('/^[A-Za-z0-9._%+-]+@gmail\.com$/i', $email)) {
     respond(['error' => 'Please use a valid Gmail address ending in @gmail.com.'], 422);
@@ -60,25 +65,30 @@ try {
 }
 
 $link = $config['api_url'] . '/verify.php?token=' . urlencode($token);
-$mail = new PHPMailer(true);
 try {
+    $mail = new PHPMailer(true);
     $mail->isSMTP();
     $mail->Host = $config['smtp']['host'];
     $mail->SMTPAuth = true;
     $mail->Username = $config['smtp']['username'];
     $mail->Password = $config['smtp']['password'];
-    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+    $mail->SMTPSecure = (int) $config['smtp']['port'] === 465
+        ? PHPMailer::ENCRYPTION_SMTPS
+        : PHPMailer::ENCRYPTION_STARTTLS;
     $mail->Port = $config['smtp']['port'];
-    $mail->setFrom($config['mail_from'], 'BAHABA');
+    $mail->setFrom($config['mail_from'], 'BANTALA');
     $mail->addAddress($email);
     $mail->isHTML(true);
-    $mail->Subject = 'Activate your BAHABA account';
-    $mail->Body = '<p>Welcome to BAHABA.</p><p><a href="' . htmlspecialchars($link, ENT_QUOTES) . '">Activate your account</a></p><p>This link expires in 24 hours.</p>';
-    $mail->AltBody = "Activate your BAHABA account: $link";
+    $mail->Subject = 'Activate your BANTALA account';
+    $mail->Body = '<p>Welcome to BANTALA.</p><p><a href="' . htmlspecialchars($link, ENT_QUOTES) . '">Activate your account</a></p><p>This link expires in 24 hours.</p>';
+    $mail->AltBody = "Activate your BANTALA account: $link";
     $mail->send();
-} catch (Exception $exception) {
-    $pdo->prepare('DELETE FROM users WHERE id = :id')->execute(['id' => $userId]);
-    respond(['error' => 'The activation email could not be sent. Check your Gmail SMTP settings.'], 500);
+} catch (\Throwable $exception) {
+    // Keep the unverified account so the user can retry delivery instead of
+    // losing it silently after a transient SMTP/network failure.
+    error_log('BANTALA signup verification delivery failed: ' . get_class($exception));
+    $_SESSION['pending_user_id'] = $userId;
+    respond(['error' => 'Your account was saved, but the activation email could not be sent. Please use “Resend activation link” or try again later.'], 503);
 }
 
 $_SESSION['pending_user_id'] = $userId;

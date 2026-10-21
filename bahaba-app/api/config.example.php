@@ -12,6 +12,8 @@ return [
     'admin_url' => 'http://localhost:8001',
     'app_url' => 'http://localhost:5173',
     'frontend_origin' => 'http://localhost:5173',
+    // Absolute path to the private Firebase service-account JSON on the API host.
+    'fcm_service_account_path' => '',
     'nlp_ingest_token' => 'replace-with-a-long-random-secret',
     // Exact platform/account IDs verified by your authenticated social collector.
     // Each entry: ['platform'=>'Facebook', 'publisher_id'=>'official-account-id', 'type'=>'government'].

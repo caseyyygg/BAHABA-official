@@ -1,5 +1,5 @@
 import { Icon } from '../components/Icon'
-import SectionBrandBanner from '../components/SectionBrandBanner'
+import { LUZON_CAMERA } from '../mapCamera'
 import { useEffect, useRef, useState } from 'react'
 import { Map, Popup, setWorkerUrl } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
@@ -7,6 +7,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import '../components/floodPings.css'
 import { getMapReports, getLocationBounds } from '../api'
 import { locationById, searchLocations } from '../locations'
+import { activeSignalFeatures, activeCitySignals } from '../cityFloodSignals'
 setWorkerUrl(workerUrl)
 
 export default function NationwideMap({ currentPsgc, currentLocation, locationSharingEnabled, preferred, navigation, setScreen }) {
@@ -19,6 +20,10 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
   const [refresh, setRefresh] = useState(0)
   const [status, setStatus] = useState('Loading available reports…')
   const [reports, setReports] = useState([])
+  const [signals, setSignals] = useState({cities:[],pins:[]})
+  const [signalClock, setSignalClock] = useState(Date.now)
+  const signalsRef = useRef(signals)
+  signalsRef.current = signals
   const [unplaced, setUnplaced] = useState(0)
   const [next, setNext] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -29,7 +34,9 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
   currentLocationRef.current = currentLocation
 
   useEffect(() => {
-    const map = new Map({ container: container.current, style: 'https://tiles.openfreemap.org/styles/liberty', center: [122, 12], zoom: 4.5 })
+    // Start with Luzon in view; the old nationwide camera made the island too
+    // small to inspect on a phone-sized map.
+    const map = new Map({ container: container.current, style: 'https://tiles.openfreemap.org/styles/liberty', ...LUZON_CAMERA })
     mapRef.current = map
     let pulseFrame
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -42,6 +49,16 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
       pulseFrame = requestAnimationFrame(pulse)
     }
     map.on('load', () => {
+      map.addSource('social-signals', {type:'geojson',data:activeSignalFeatures(signalsRef.current)})
+      map.addLayer({id:'social-signal-areas',type:'fill',source:'social-signals',filter:['!=',['geometry-type'],'Point'],paint:{'fill-color':'#2563eb','fill-opacity':0}})
+      map.addLayer({id:'social-signal-borders',type:'line',source:'social-signals',filter:['!=',['geometry-type'],'Point'],paint:{'line-color':'#2563eb','line-width':3}})
+      map.addLayer({id:'social-signal-points',type:'circle',source:'social-signals',filter:['==',['geometry-type'],'Point'],paint:{'circle-color':'#fbbf24','circle-radius':8,'circle-stroke-color':'#a16207','circle-stroke-width':2}})
+      for (const layer of ['social-signal-areas','social-signal-points']) map.on('click',layer,event=>{
+        const pin=event.features?.[0]?.properties;if(!pin)return
+        const node=document.createElement('div')
+        node.textContent=`REPORTED FLOODING — not officially verified. ${pin.label} (${pin.precision_level}). ${pin.post_count} posts. Severity: ${pin.severity}. Latest: ${pin.latest_post_at} UTC.`
+        popupRef.current?.remove();popupRef.current=new Popup({maxWidth:'300px'}).setLngLat(event.lngLat).setDOMContent(node).addTo(map)
+      })
       map.addSource('reports', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, cluster: true, clusterRadius: 45 })
       map.addSource('current-location', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
       map.addLayer({ id: 'current-location-halo', type: 'circle', source: 'current-location', paint: { 'circle-color': '#16a765', 'circle-radius': 13, 'circle-opacity': 0.2 } })
@@ -114,6 +131,7 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
         const data = await getMapReports({ ...(location ? { location } : {}), ...(severity ? { severity } : {}) })
         if (own !== generation.current) return
         setReports(data.reports); setNext(data.next)
+        setSignals(data.flood_signals || {cities:[],pins:[]})
         setUnplaced(data.reports.filter(r => !validPoint(r)).length)
         setStatus(data.reports.length ? `${data.reports.length} available reports${data.next ? ' — more available; load next page' : ''}` : 'No reports available here. This does not confirm absence of flooding.')
       } catch (e) { if (own === generation.current) setStatus(`Reports could not be loaded: ${e.message}`) }
@@ -122,6 +140,12 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
     return () => { clearTimeout(timer) }
   }, [location, severity, refresh])
 
+  useEffect(()=>{
+    const timer=setInterval(()=>{setSignalClock(Date.now());setRefresh(value=>value+1)},30000)
+    return()=>clearInterval(timer)
+  },[])
+  useEffect(()=>{mapRef.current?.getSource('social-signals')?.setData(activeSignalFeatures(signals,signalClock))},[signals,signalClock])
+
   useEffect(() => {
     mapRef.current?.getSource('reports')?.setData({ type: 'FeatureCollection', features: reports.filter(validPoint).map(r => ({ type: 'Feature', id: r.id, properties: r, geometry: { type: 'Point', coordinates: [Number(r.longitude), Number(r.latitude)] } })) })
   }, [reports])
@@ -129,7 +153,7 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
   async function choose(id) {
     const own = ++focusRequest.current
     setLocation(id); setQuery(''); setFiltersOpen(false)
-    if (!id) { mapRef.current?.flyTo({ center: [122, 12], zoom: 4.5 }); return }
+    if (!id) { mapRef.current?.flyTo(LUZON_CAMERA); return }
     try {
       const { bounds } = await getLocationBounds(id)
       if (bounds && own === focusRequest.current) mapRef.current?.fitBounds(bounds, { padding: 80, maxZoom: 12 })
@@ -146,7 +170,6 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
     } catch (e) { if (own === generation.current) setStatus(e.message) } finally { if (own === generation.current) setBusy(false) }
   }
   return <div className="phone-screen map-screen nationwide-screen">
-    <SectionBrandBanner title="Map" subtitle="Flood Reports Nationwide" />
     <section className={`search-dock nationwide-controls ${filtersOpen ? "expanded" : ""}`}>
       <button type="button" className="search-dock-handle" aria-label={filtersOpen ? 'Collapse location search' : 'Expand location search'} aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}><span /></button>
       <div className="top-search-bar"><div className="search-input-wrap"><Icon className="search-icon" name="search" size={17} /><input aria-label="Search location" value={query} onFocus={() => setFiltersOpen(true)} onChange={e => { setQuery(e.target.value); setFiltersOpen(true) }} placeholder="Search location" /></div></div>
@@ -178,7 +201,8 @@ export default function NationwideMap({ currentPsgc, currentLocation, locationSh
       </div>
     </section>
     <div ref={container} className="nationwide-canvas" aria-label="Nationwide flood report map" />
-    <details className="nationwide-location-panel"><summary><span><strong>{locationById(location)?.name || 'Philippines'}</strong><small>View {reports.length} available report{reports.length === 1 ? '' : 's'}</small></span><span className="panel-chevron" aria-hidden="true">⌃</span></summary><div className="nationwide-report-list" aria-live="polite"><p>{status}</p>{unplaced > 0 && <p>{unplaced} reports have no verified map coordinates; see their location details below.</p>}
+    {activeCitySignals(signals,signalClock).map(city=><p key={city.city_id} role="status" style={{margin:'8px 16px',padding:'10px',background:'#fffbeb',color:'#854d0e',borderRadius:10}}>Reported flooding: {city.city_name}. {city.event_post_count} posts in the active event. Blue city and barangay outlines indicate reported flooding. Pins mark verified exact locations; the flooding remains unconfirmed until official review.</p>)}
+    <details className="nationwide-location-panel"><summary><span><strong>{locationById(location)?.name || 'Reports'}</strong><small>View {reports.length} available report{reports.length === 1 ? '' : 's'}</small></span><span className="panel-chevron" aria-hidden="true">⌃</span></summary><div className="nationwide-report-list" aria-live="polite"><p>{status}</p>{unplaced > 0 && <p>{unplaced} reports have no verified map coordinates; see their location details below.</p>}
       {reports.map(r => <article key={r.id}><strong>{[r.city, r.province, r.barangay].filter(Boolean).join(', ')} — {r.severity}</strong>{r.created_at && <time dateTime={String(r.created_at).replace(' ', 'T')}>{formatPostedDate(r.created_at)}</time>}<p>{r.description}</p></article>)}
       {next && <button type="button" disabled={busy} onClick={more}>Load more available reports</button>}
     </div></details>

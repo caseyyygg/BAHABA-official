@@ -24,9 +24,12 @@ COPY deploy/render-api/admin-source/nlp-location.php /var/www/html/nlp-location.
 COPY deploy/render-api/admin-source/report-point.php /var/www/html/report-point.php
 COPY deploy/render-api/admin-source/report-management.php /var/www/html/report-management.php
 COPY deploy/render-api/admin-source/nlp-threshold.php /var/www/html/nlp-threshold.php
+COPY deploy/render-api/admin-source/nlp-flood-events.php /var/www/html/nlp-flood-events.php
+COPY deploy/render-api/admin-source/expire-nlp-events.php /var/www/html/expire-nlp-events.php
 COPY deploy/render-api/admin-source/collected-history.php /var/www/html/collected-history.php
 COPY deploy/render-api/admin-source/team-deployments.php /var/www/html/team-deployments.php
 COPY deploy/render-api/admin-source/social-accounts.php /var/www/html/social-accounts.php
+COPY deploy/render-api/admin-source/trusted-publishers.php /var/www/html/trusted-publishers.php
 COPY deploy/render-api/admin-source/team-barangays.json /var/www/html/team-barangays.json
 COPY deploy/render-api/admin-source/map-data/ /var/www/html/map-data/
 COPY bahaba-app/location-config.json /var/www/html/location-config.json

@@ -56,11 +56,11 @@ export function Glyph({ name, size = 18 }) {
   }
 }
 
-const formatReportedAt = (value) => {
+const formatReportedAt = (value, timeZone) => {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', ...(timeZone ? { timeZone } : {}) })
 }
 
 /* Expandable row with a real "View details" button */
@@ -88,20 +88,93 @@ export function ExpandableRow({ id, className = '', header, children }) {
   )
 }
 
-export function FloodReportsCard({ selectedCity, reports = [], nlpEvents = [] }) {
+export function FloodReportsCard({ selectedCity, reports = [], nlpEvents = [], socialReports = [], socialPins = [], individualReports = [] }) {
   const locationReports = [...reports, ...nlpEvents]
+  const socialPostCount = individualReports.length || (socialReports.length
+    ? socialReports.reduce((count, report) => count + Math.max(0, Number(report.post_count) || 0), 0)
+    : socialPins.reduce((count, pin) => count + Math.max(0, Number(pin.post_count) || 0), 0))
   const hasHighReport = locationReports.some(report => String(report.severity).toLowerCase() === 'high')
+    || individualReports.some(report => String(report.severity).toLowerCase() === 'high')
+  const totalReports = locationReports.length + socialPostCount
+  const hasIndividualReports = individualReports.length > 0
   return (
         <section className="cc-card" aria-label="Flood reports">
           <div className="cc-card-head">
             <span className="cc-pill-ic blue"><Glyph name="waves" /></span>
-            <h2 className="cc-title">Flood reports · {locationReports.length}</h2>
-            <span className={`cc-badge ${!locationReports.length ? 'ok' : hasHighReport ? 'danger' : 'warn'}`}>
-              {!locationReports.length ? 'No reports available' : hasHighReport ? 'High risk' : 'Monitoring'}
+            <h2 className="cc-title">Flood reports · {totalReports}</h2>
+            <span className={`cc-badge ${!totalReports ? 'ok' : hasHighReport ? 'danger' : 'warn'}`}>
+              {!totalReports ? 'No reports available' : hasHighReport ? 'High risk' : 'Monitoring'}
             </span>
           </div>
+          {hasIndividualReports && (
+            <p className="nlp-feed-note"><span className="nlp-feed-dot" /> Individual automated NLP detections · refreshes with live feed updates</p>
+          )}
 
           <div className="cc-list">
+            {!hasIndividualReports && socialReports.map((report, index) => {
+              const pins = socialPins.filter(pin => pin.city_id === report.city_id)
+              return (
+                <div className="cc-row" key={`social-${report.city_id || index}`} role="status">
+                  <div className="cc-row-head">
+                    <div className="cc-row-main">
+                      <strong>{report.city_name || selectedCity}</strong>
+                      <small>{report.post_count} flood-related social {Number(report.post_count) === 1 ? 'post' : 'posts'}</small>
+                      {pins.map((pin, pinIndex) => (
+                        <small key={`${pin.location_key || pin.label}-${pinIndex}`}>
+                          Reported near {pin.label}: {pin.post_count} {Number(pin.post_count) === 1 ? 'post' : 'posts'}
+                        </small>
+                      ))}
+                    </div>
+                    <span className="risk-tag amber">Automated NLP</span>
+                  </div>
+                </div>
+              )
+            })}
+            {!hasIndividualReports && !socialReports.length && socialPins.map((pin, index) => (
+              <div className="cc-row" key={`social-pin-${pin.city_id}-${pin.location_key || index}`} role="status">
+                <div className="cc-row-head">
+                  <div className="cc-row-main">
+                    <strong>{pin.label || selectedCity}</strong>
+                    <small>{pin.post_count} flood-related social {Number(pin.post_count) === 1 ? 'post' : 'posts'}</small>
+                  </div>
+                  <span className="risk-tag amber">Automated NLP</span>
+                </div>
+              </div>
+            ))}
+            {individualReports.map((report, index) => {
+              const severity = String(report.severity || '').toLowerCase()
+              const severityClass = severity === 'high' ? 'red' : severity === 'medium' || severity === 'low' ? 'amber' : 'gray'
+              const reportedAt = formatReportedAt(report.published_at, 'Asia/Manila')
+              const location = report.barangay
+                ? `${report.barangay}, ${report.city_name || selectedCity}`
+                : report.precision_level !== 'city' && report.label
+                  ? `${report.label}, ${report.city_name || selectedCity}`
+                  : report.city_name || selectedCity
+              return (
+                <ExpandableRow
+                  key={report.id || `nlp-${index}`}
+                  id={`nlp-report-${index}`}
+                  className={`cc-row cc-row-nlp cc-row-nlp--${severityClass}`}
+                  header={(
+                    <div className="cc-row-head">
+                      <div className="cc-row-main">
+                        <strong>{location}</strong>
+                        <small className="nlp-report-meta"><span className="nlp-source-pill">AUTOMATED NLP</span><span>{report.source || 'Social source'}{reportedAt ? ` · ${reportedAt} PHT` : ''}</span></small>
+                      </div>
+                      <span className={`risk-tag nlp-severity-tag ${severityClass}`}><span className="nlp-severity-dot" />{report.severity || 'Unspecified'}</span>
+                    </div>
+                  )}
+                >
+                  <dl>
+                    <div><dt>Location</dt><dd>{location}</dd></div>
+                    <div><dt>Automated severity</dt><dd>{report.severity || 'Unspecified'} · assigned by NLP</dd></div>
+                    <div><dt>Source</dt><dd>{report.source || 'Social source'}</dd></div>
+                    <div><dt>Location match</dt><dd>{report.precision_level === 'landmark' ? 'Matched mapped landmark; shown as a point' : report.precision_level === 'barangay' ? 'Matched to this barangay; shown as an area' : 'No barangay match; city-level only'}</dd></div>
+                    {reportedAt && <div><dt>Post time</dt><dd>{reportedAt} PHT</dd></div>}
+                  </dl>
+                </ExpandableRow>
+              )
+            })}
             {locationReports.slice(0, 5).map((report, index) => {
               const isHigh = String(report.severity).toLowerCase() === 'high'
               const reportedAt = formatReportedAt(report.created_at)
@@ -130,7 +203,7 @@ export function FloodReportsCard({ selectedCity, reports = [], nlpEvents = [] })
                 </ExpandableRow>
               )
             })}
-            {!locationReports.length && (
+            {!totalReports && (
               <div className="cc-empty ok">
                 <span className="cc-pill-ic green"><Glyph name="check" /></span>
                 <p>No current flood reports for {selectedCity}.</p>

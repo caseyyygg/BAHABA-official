@@ -20,6 +20,7 @@ import {
   getProfile,
   login,
   logout,
+  deleteAccount,
   resendVerification,
   signup,
   updateProfile,
@@ -89,6 +90,8 @@ const emptySignup = {
 function App() {
   const [screen, setScreen] = useState('splash')
   const [sessionChecked, setSessionChecked] = useState(false)
+  const [sessionError, setSessionError] = useState('')
+  const [sessionAttempt, setSessionAttempt] = useState(0)
   const [loginTransitionActive, setLoginTransitionActive] = useState(false)
   const [loginTransitionRevealed, setLoginTransitionRevealed] = useState(false)
   const [signupForm, setSignupForm] = useState(emptySignup)
@@ -186,42 +189,38 @@ function App() {
   const revealLoginTransition = useCallback(() => setLoginTransitionRevealed(true), [])
   const finishLoginTransition = useCallback(() => setLoginTransitionActive(false), [])
 
-  // Session persistence
+  // Always validate the server cookie; local storage is only a convenience cache.
   useEffect(() => {
-    // Check for saved session on app load
-    const savedUser = localStorage.getItem('bahaba_app_user')
-    const sessionExpiry = localStorage.getItem('bahaba_app_session_expiry')
     let active = true
-    const finishSessionCheck = () => { if (active) setSessionChecked(true) }
-
-    if (
-      savedUser &&
-      sessionExpiry &&
-      new Date().getTime() < parseInt(sessionExpiry)
-    ) {
-      getProfile()
-        .then(({ user }) => {
-          setCurrentUser(user)
-          setActiveLocationId(preferredStartLocation(user))
-          // Returning sessions use the locations already stored on the account.
-          setScreen('map')
-          saveUserSession(user)
-        })
-        .catch(() => clearUserSession())
-        .finally(finishSessionCheck)
-    } else {
-      localStorage.removeItem('bahaba_app_user')
-      localStorage.removeItem('bahaba_app_session_expiry')
-      finishSessionCheck()
-    }
-
-    // Check for verification link in URL
-    if (new URLSearchParams(window.location.search).get('verified') === '1') {
-      window.history.replaceState({}, document.title, window.location.pathname)
-      setScreen('verify')
-    }
+    const verificationLink = new URLSearchParams(window.location.search).get('verified') === '1'
+    setSessionError('')
+    getProfile()
+      .then(({ user }) => {
+        if (!active) return
+        setCurrentUser(user)
+        setActiveLocationId(preferredStartLocation(user))
+        saveUserSession(user)
+        setLoginTransitionRevealed(false)
+        setLoginTransitionActive(true)
+        setScreen('map')
+        if (verificationLink) window.history.replaceState({}, document.title, window.location.pathname)
+      })
+      .catch(error => {
+        if (!active) return
+        if (error.status === 401) {
+          clearUserSession()
+          if (verificationLink) {
+            window.history.replaceState({}, document.title, window.location.pathname)
+            setScreen('verify')
+          }
+          setSessionChecked(true)
+        } else {
+          setSessionError('Could not check your session. Check your connection and try again.')
+        }
+      })
+      .finally(() => { if (active) setSessionChecked(true) })
     return () => { active = false }
-  }, [])
+  }, [sessionAttempt])
 
   const preferredLocationIds = useMemo(() => Array.isArray(currentUser?.preferred_locations) ? currentUser.preferred_locations : [], [currentUser?.preferred_locations])
   const availableLocationIds = useMemo(() => [...new Set([
@@ -488,6 +487,27 @@ function App() {
     })
   }
 
+  const handleDeleteAccount = async (currentPassword) => {
+    await deleteAccount({ current_password: currentPassword })
+    if (nativePushToken.current && Capacitor.isNativePlatform()) {
+      await PushNotifications.unregister().catch((error) => {
+        console.warn('Could not unregister local push notifications after account deletion:', error.message)
+      })
+      nativePushToken.current = ''
+    }
+    setCurrentUser(null)
+    setCurrentPsgc(null)
+    setCurrentLocation(null)
+    setCurrentPlace('')
+    setLocationData({ reports: [], nlp_events: [], announcements: [], command_center: null, evacuation_centers: [] })
+    clearUserSession()
+    setLoginForm({ email: '', password: '' })
+    setLocationSharingEnabled(false)
+    setPushNotificationsEnabled(false)
+    setFloodAlertsEnabled(false)
+    setScreen('splash')
+  }
+
   const handleSaveProfile = async (changes) => {
     const { user } = await updateProfile(changes)
     setCurrentUser(user)
@@ -611,6 +631,13 @@ function App() {
   }
 
   const renderScreen = () => {
+    if (!sessionChecked || sessionError) return <div className="phone-screen splash-screen">
+      <div className="splash-content" role="status">
+        <h1>BANTALA</h1>
+        <p>{sessionError || 'Restoring your session?'}</p>
+        {sessionError && <button className="primary-button" type="button" onClick={() => { setSessionChecked(false); setSessionAttempt(attempt => attempt + 1) }}>Try again</button>}
+      </div>
+    </div>
     switch (screen) {
       case 'splash':
         return (
@@ -693,6 +720,7 @@ function App() {
           onSave={async ids => { await handleSaveProfile({ preferred_locations: ids }); setScreen('map') }}
           onCancel={completedPreferences(currentUser) ? () => setScreen('settings') : undefined}
           onLogout={handleLogout}
+          onDeleteAccount={handleDeleteAccount}
         /></div>
 
       case 'map':

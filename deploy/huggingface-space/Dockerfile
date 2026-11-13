@@ -17,11 +17,13 @@ WORKDIR /app
 COPY requirements.txt ./requirements.txt
 RUN python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 'torch>=2.6,<3' \
     && python -m pip install --no-cache-dir -r requirements.txt \
-    && playwright install --with-deps chrome \
+    && playwright install --with-deps chromium \
     && python -m venv /opt/x-collector \
     && /opt/x-collector/bin/python -m pip install --no-cache-dir twitter-cli==0.8.5
 
 COPY app.py social_collectors.py scoped_collectors.py x_agent_reach.py social_browser.py official_x.py ./
+COPY collector-locations.json ./collector-locations.json
+COPY collector-profiles.json ./collector-profiles.json
 COPY vendor/ ./vendor/
 
 EXPOSE 7860

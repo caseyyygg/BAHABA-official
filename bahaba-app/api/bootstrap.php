@@ -81,6 +81,7 @@ try {
     echo json_encode(['error' => 'Database connection failed. Check api/config.php.']);
     exit;
 }
+$pdo->exec("SET time_zone = '+00:00'");
 
 bahaba_ensure_location_schema($pdo);
 require_once __DIR__.'/password-recovery.php';
@@ -88,6 +89,13 @@ bahaba_reset_schema($pdo);
 bahaba_ensure_column($pdo, 'reports', 'map_hidden', 'BOOLEAN NOT NULL DEFAULT FALSE');
 bahaba_ensure_psgc_schema($pdo);
 bahaba_ensure_push_schema($pdo);
+$pdo->exec("CREATE TABLE IF NOT EXISTS account_deletion_requests (
+    user_id BIGINT UNSIGNED PRIMARY KEY,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_account_deletion_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB");
 
 function request_json(): array
 {
@@ -120,4 +128,3 @@ function public_user(array $user): array
         'barangays' => $user['barangays'] ? json_decode($user['barangays'], true) : [],
     ];
 }
-

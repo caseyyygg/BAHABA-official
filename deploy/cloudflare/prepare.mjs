@@ -2,15 +2,16 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import { patchLiveFeed } from '../../bahaba-app/scripts/admin-live-feed.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const app = resolve(root, 'bahaba-app')
 const sourceAdmin = process.argv[2]
 if (!sourceAdmin) throw new Error('Pass the absolute admin source directory as the first argument.')
-const output = resolve(here, 'output')
+const output = resolve(process.argv[3] || resolve(here, 'output'))
 const stagedAdmin = resolve(output, 'admin-staging')
-const adminFiles = ['index.html', 'App.js', 'style.css', 'admin-polish.css', 'psgc-registry.json', 'report-manager.js', 'collected-history.js', 'barangay-status.js', 'team-deployments.js', 'social-accounts.js', 'user-manager.js', 'admin-confirm.js', 'bahaba-logo.jpg', 'report-map.mjs', 'report-point.mjs', 'admin-search-selects.js', 'api.php', 'nlp-location.php', 'report-point.php', 'report-management.php', 'nlp-threshold.php', 'collected-history.php', 'team-deployments.php', 'social-accounts.php', 'team-barangays.json', 'map-data', 'map-vendor']
+const adminFiles = ['index.html', 'App.js', 'style.css', 'admin-polish.css', 'psgc-registry.json', 'report-manager.js', 'collected-history.js', 'barangay-status.js', 'team-deployments.js', 'social-accounts.js', 'user-manager.js', 'admin-confirm.js', 'bahaba-logo.jpg', 'report-map.mjs', 'command-live-map.mjs', 'admin-flood-signals.mjs', 'report-severity.mjs', 'report-point.mjs', 'admin-search-selects.js', 'api.php', 'nlp-location.php', 'report-point.php', 'report-management.php', 'nlp-threshold.php', 'collected-history.php', 'team-deployments.php', 'social-accounts.php', 'team-barangays.json', 'map-data', 'map-vendor']
 mkdirSync(stagedAdmin, { recursive: true })
 for (const name of adminFiles) {
   const source = resolve(sourceAdmin, name)
@@ -51,6 +52,16 @@ writeFileSync(adminAppPath, adminApp)
 // publication sends immediately; the scheduled dispatcher remains a retry.
 const adminApiPath = resolve(stagedAdmin, 'api.php')
 let adminApi = readFileSync(adminApiPath, 'utf8')
+const canonicalAdminApi = readFileSync(resolve(root, 'deploy/render-api/admin-source/api.php'), 'utf8')
+const healthStart = canonicalAdminApi.indexOf('function nlp_service_status(): array')
+const healthEnd = canonicalAdminApi.indexOf('\ntry {', healthStart)
+if (healthStart < 0 || healthEnd < 0) throw new Error('Could not locate canonical NLP health function.')
+adminApi = adminApi.replace(/function nlp_service_status\(\): array[\s\S]*?(?=\r?\ntry \{)/, canonicalAdminApi.slice(healthStart, healthEnd))
+const ingestTokenStart = canonicalAdminApi.indexOf('$nlpIngestToken =')
+const ingestTokenEnd = canonicalAdminApi.indexOf('\n\nfunction nlp_service_status(): array', ingestTokenStart)
+if (ingestTokenStart < 0 || ingestTokenEnd < 0) throw new Error('Could not locate canonical NLP ingestion token configuration.')
+adminApi = adminApi.replace(/\$nlpIngestToken =[^;]*;[\s\S]*?\$nlpIngestionConfigured =[^;]*;/, canonicalAdminApi.slice(ingestTokenStart, ingestTokenEnd))
+
 if (!adminApi.includes("require_once $sharedApiDirectory . '/push.php';")) {
   adminApi = adminApi.replace("require_once $sharedApiDirectory . '/psgc.php';", "require_once $sharedApiDirectory . '/psgc.php';\nrequire_once $sharedApiDirectory . '/push.php';")
 }
@@ -77,15 +88,23 @@ for (const [name, fallback] of [['admin-confirm.js', resolve(app, 'scripts/admin
   if (!existsSync(resolve(stagedAdmin, name)) && existsSync(fallback)) cpSync(fallback, resolve(stagedAdmin, name), { force: true })
 }
 mkdirSync(resolve(stagedAdmin, 'nlp-service'), { recursive: true })
-const sourceNlpApp = resolve(sourceAdmin, 'nlp-service/app.py')
-const nlpApp = existsSync(sourceNlpApp) ? sourceNlpApp : resolve(here, '../huggingface-space/app.py')
-cpSync(nlpApp, resolve(stagedAdmin, 'nlp-service/app.py'), { force: true })
+// Use one collector implementation for hosted and local packages. An older
+// external admin export must not restore fabricated dates or historical feeds.
+const collectorSource = resolve(here, '../huggingface-space')
+for (const name of ['app.py', 'official_x.py', 'social_collectors.py', 'scoped_collectors.py', 'social_browser.py', 'x_agent_reach.py', 'collector-locations.json', 'collector-profiles.json', 'requirements.txt', 'vendor']) {
+  cpSync(resolve(collectorSource, name), resolve(stagedAdmin, 'nlp-service', name), { recursive: true, force: true })
+}
 execFileSync(process.execPath, [resolve(app, 'scripts/update-report-workflow.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-collected-history.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-barangay-status.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-team-deployments.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-social-accounts.mjs'), stagedAdmin], { stdio: 'inherit' })
 execFileSync(process.execPath, [resolve(app, 'scripts/update-user-manager.mjs'), stagedAdmin], { stdio: 'inherit' })
+const stagedAppPath = resolve(stagedAdmin, 'App.js')
+const stagedHtmlPath = resolve(stagedAdmin, 'index.html')
+const liveFeed = patchLiveFeed(readFileSync(stagedAppPath, 'utf8'), readFileSync(stagedHtmlPath, 'utf8'))
+writeFileSync(stagedAppPath, liveFeed.app)
+writeFileSync(stagedHtmlPath, liveFeed.html)
 execFileSync(process.execPath, [resolve(app, 'node_modules/vite/bin/vite.js'), 'build'], {
   cwd: app, stdio: 'inherit', env: { ...process.env, VITE_API_URL: '/api' },
 })
@@ -95,16 +114,17 @@ mkdirSync(pages, { recursive: true })
 mkdirSync(resolve(backend, 'api'), { recursive: true })
 cpSync(resolve(app, 'location-config.json'), resolve(backend, 'location-config.json'))
 cpSync(resolve(app, 'psgc-registry.json'), resolve(backend, 'psgc-registry.json'))
+cpSync(resolve(app, 'src/assets/flood-landmarks.json'), resolve(backend, 'flood-landmarks.json'))
 cpSync(resolve(root, 'deploy/render-api/healthz.php'), resolve(backend, 'healthz.php'))
 cpSync(resolve(app, 'dist'), pages, { recursive: true })
 cpSync(resolve(here, 'worker.mjs'), resolve(pages, '_worker.js'))
 writeFileSync(resolve(pages, '_routes.json'), JSON.stringify({ version: 1, include: ['/api/*', '/admin-api.php'], exclude: [] }, null, 2))
 mkdirSync(resolve(pages, 'admin'), { recursive: true })
-for (const name of ['index.html', 'App.js', 'style.css', 'admin-polish.css', 'psgc-registry.json', 'report-manager.js', 'collected-history.js', 'barangay-status.js', 'team-deployments.js', 'social-accounts.js', 'trusted-publishers.js', 'user-manager.js', 'admin-confirm.js', 'bahaba-logo.jpg', 'report-map.mjs', 'report-point.mjs', 'map-data', 'map-vendor']) {
+for (const name of ['index.html', 'App.js', 'style.css', 'admin-polish.css', 'psgc-registry.json', 'report-manager.js', 'collected-history.js', 'barangay-status.js', 'team-deployments.js', 'social-accounts.js', 'trusted-publishers.js', 'admin-search-selects.js', 'user-manager.js', 'admin-confirm.js', 'bahaba-logo.jpg', 'report-map.mjs', 'command-live-map.mjs', 'admin-flood-signals.mjs', 'report-severity.mjs', 'report-point.mjs', 'map-data', 'map-vendor']) {
   cpSync(resolve(stagedAdmin, name), resolve(pages, 'admin', name), { recursive: true })
 }
 // Only server sources, never local credentials or test-account seed scripts.
-for (const name of ['bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'config.example.php', 'index.php', 'location-data.php', 'location_helpers.php', 'psgc.php', 'push.php', 'push-device.php', 'push-dispatch.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'municipality-boundaries.php', 'municipality-boundaries.json', 'municipality-geometry', 'login.php', 'logout.php', 'me.php', 'profile.php', 'report-retention.php', 'resend-verification.php', 'signup.php', 'verify.php', 'schema.sql', 'composer.json', 'composer.lock']) {
+for (const name of ['bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'config.example.php', 'index.php', 'location-data.php', 'location_helpers.php', 'psgc.php', 'push.php', 'push-device.php', 'push-dispatch.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'municipality-boundaries.php', 'municipality-boundaries.json', 'municipality-geometry', 'login.php', 'logout.php', 'me.php', 'profile.php', 'report-retention.php', 'resend-verification.php', 'signup.php', 'verify.php', 'schema.sql', 'composer.json', 'composer.lock']) {
   cpSync(resolve(app, 'api', name), resolve(backend, 'api', name), { recursive: true })
 }
 cpSync(resolve(app, 'api/collected-summary.php'), resolve(backend, 'api/collected-summary.php'))
@@ -112,7 +132,8 @@ cpSync(resolve(app, 'api/collected-summary.php'), resolve(backend, 'api/collecte
 // Cloudflare/AlwaysData deployments do not require a separate server-side step.
 cpSync(resolve(app, 'api/vendor'), resolve(backend, 'api/vendor'), { recursive: true })
 cpSync(resolve(here, '../alwaysdata/config.example.php'), resolve(backend, 'api/config.example.php'))
-for (const name of ['nlp-location.php', 'report-point.php', 'report-management.php', 'nlp-threshold.php', 'nlp-flood-events.php', 'expire-nlp-events.php', 'trusted-publishers.php', 'collected-history.php', 'team-deployments.php', 'social-accounts.php', 'team-barangays.json']) cpSync(resolve(stagedAdmin, name), resolve(backend, name))
+for (const name of ['nlp-location.php', 'nlp-timestamps.php', 'report-point.php', 'report-management.php', 'nlp-threshold.php', 'expire-nlp-events.php', 'trusted-publishers.php', 'collected-history.php', 'team-deployments.php', 'social-accounts.php', 'team-barangays.json']) cpSync(resolve(stagedAdmin, name), resolve(backend, name))
+cpSync(resolve(root, 'deploy/render-api/admin-source/nlp-flood-events.php'), resolve(backend, 'nlp-flood-events.php'))
 cpSync(resolve(stagedAdmin, 'api.php'), resolve(backend, 'admin-api.php'))
 cpSync(resolve(stagedAdmin, 'map-data'), resolve(backend, 'map-data'), { recursive: true })
 writeFileSync(resolve(backend, '.htaccess'), 'Options -Indexes\n<FilesMatch "^(config(\\.example)?\\.php|schema\\.sql|composer\\.(json|lock))$">\nRequire all denied\n</FilesMatch>\n')

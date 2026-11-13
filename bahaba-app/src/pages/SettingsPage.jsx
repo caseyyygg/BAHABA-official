@@ -3,13 +3,16 @@ import { Icon } from '../components/Icon'
 import SectionBrandBanner from '../components/SectionBrandBanner'
 import { useState } from 'react'
 
-export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, floodAlertsEnabled, setFloodAlertsEnabled, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, selectedCity, onSaveProfile }) {
+export default function SettingsPage({ currentUser, darkMode, setDarkMode, navigation, activeNav, setActiveNav, setScreen, onLogout, onDeleteAccount, locationSharingEnabled, onLocationToggle, pushNotificationsEnabled, onNotificationsToggle, locationStatus, notificationStatus, currentPlace, selectedCity, onSaveProfile }) {
   const [name, setName] = useState(currentUser?.username || '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [saving, setSaving] = useState(false)
   const [profileStatus, setProfileStatus] = useState('')
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteStatus, setDeleteStatus] = useState('')
+  const [deleting, setDeleting] = useState(false)
   const saveProfile = async (event) => {
     event.preventDefault()
     if (saving) return
@@ -24,6 +27,19 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
       setProfileStatus('Your changes have been saved.')
     } catch (error) { setProfileStatus(error.message) }
     finally { setSaving(false) }
+  }
+  const deleteAccount = async (event) => {
+    event.preventDefault()
+    if (deleting || !deletePassword) return
+    if (!window.confirm('Permanently delete your BANTALA account and saved account data? This cannot be undone.')) return
+    setDeleting(true)
+    setDeleteStatus('')
+    try {
+      await onDeleteAccount(deletePassword)
+    } catch (error) {
+      setDeleteStatus(error.message)
+      setDeleting(false)
+    }
   }
   return (
     <div className="phone-screen settings-screen">
@@ -47,21 +63,10 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
 
       <div className="settings-scroll">
         <div className="settings-form location-settings-form">
-<button className="manage-preferences-button" type="button" onClick={() => setScreen('preferences')}><span className="manage-preferences-icon"><Icon name="pin" size={21} /></span><span><strong>Manage preferred locations</strong><small>{currentUser?.preferred_locations?.length || 0} locations for flood and LGU updates</small></span><span aria-hidden="true">›</span></button>
+<button className="manage-preferences-button" type="button" onClick={() => setScreen('preferences')}><span className="manage-preferences-icon"><Icon name="pin" size={21} /></span><span><strong>Manage preferred locations</strong><small>{currentUser?.preferred_locations?.length || 0} locations for flood and LGU updates</small></span><span aria-hidden="true">{'\u203a'}</span></button>
         </div>
 
         <div className="settings-list">
-          <div className="settings-row">
-            <span>Flood Alerts</span>
-            <button
-              type="button"
-              className={`switch ${floodAlertsEnabled ? 'on' : ''}`}
-              onClick={() => setFloodAlertsEnabled((current) => !current)}
-              aria-label="Toggle flood alerts"
-              role="switch"
-              aria-checked={floodAlertsEnabled}
-            />
-          </div>
           <div className="settings-row">
             <span>Location Sharing</span>
             <button
@@ -117,6 +122,17 @@ export default function SettingsPage({ currentUser, darkMode, setDarkMode, navig
           {profileStatus && <p className="settings-status" role="status">{profileStatus}</p>}
           <button className="primary-button settings-save-button" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
         </form>
+        <section className="settings-delete-account" aria-labelledby="delete-account-heading">
+          <h2 id="delete-account-heading">Delete account</h2>
+          <p>Permanently delete your account and saved preferences. This cannot be undone. You can also request deletion at <a href="/delete-account/">bantalafloodapp.pages.dev/delete-account</a>.</p>
+          <form onSubmit={deleteAccount}>
+            <label htmlFor="delete-account-password">Confirm your password</label>
+            <PasswordInput id="delete-account-password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} required disabled={deleting} />
+            {deleteStatus && <p className="settings-status" role="alert">{deleteStatus}</p>}
+            <button className="delete-account-button" type="submit" disabled={deleting}>{deleting ? 'Deleting account…' : 'Permanently delete account'}</button>
+          </form>
+        </section>
+        <p className="settings-legal-links"><a href="/privacy/" target="_blank" rel="noreferrer">Privacy policy</a></p>
         <button className="logout-button" type="button" onClick={onLogout}>Log out</button>
       </div>
 

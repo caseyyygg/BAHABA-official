@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+def releaseSigningProperties = [
+    BAHABA_RELEASE_STORE_FILE: providers.gradleProperty('BAHABA_RELEASE_STORE_FILE').orNull,
+    BAHABA_RELEASE_STORE_PASSWORD: providers.gradleProperty('BAHABA_RELEASE_STORE_PASSWORD').orNull,
+    BAHABA_RELEASE_KEY_ALIAS: providers.gradleProperty('BAHABA_RELEASE_KEY_ALIAS').orNull,
+    BAHABA_RELEASE_KEY_PASSWORD: providers.gradleProperty('BAHABA_RELEASE_KEY_PASSWORD').orNull
+]
+def missingReleaseSigningProperties = releaseSigningProperties.findAll { key, value -> !value }.keySet()
+def releaseSigningConfigured = missingReleaseSigningProperties.isEmpty()
+
 android {
     namespace = "com.bantala.floodapp"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "com.bantala.floodapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +25,39 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                storeFile file(releaseSigningProperties['BAHABA_RELEASE_STORE_FILE'])
+                storePassword releaseSigningProperties['BAHABA_RELEASE_STORE_PASSWORD']
+                keyAlias releaseSigningProperties['BAHABA_RELEASE_KEY_ALIAS']
+                keyPassword releaseSigningProperties['BAHABA_RELEASE_KEY_PASSWORD']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name in ['assembleRelease', 'bundleRelease', 'packageRelease']) {
+        doFirst {
+            if (!releaseSigningConfigured) {
+                throw new GradleException(
+                    "Release signing is not configured. Set these properties in your user-level Gradle " +
+                    "properties file: ${missingReleaseSigningProperties.join(', ')}."
+                )
+            }
+            if (!file(releaseSigningProperties['BAHABA_RELEASE_STORE_FILE']).isFile()) {
+                throw new GradleException('The configured release keystore file does not exist.')
+            }
         }
     }
 }

@@ -19,7 +19,7 @@ class InferenceRoutingTests(unittest.TestCase):
         exec(compile(ast.Module(body=[function], type_ignores=[]), 'app.py', 'exec'), scope)
         self.detect = scope['_detect_and_forward']
         self.post = SimpleNamespace(source='Test', post_id='test', post_text='Baha sa Navotas',
-                                    post_url=None, location=None, city=None, barangay=None, timestamp=None, publisher_id=None, original_post_id=None, is_repost=False)
+                                    post_url=None, location_id='navotas', location=None, city=None, barangay=None, timestamp=None, publisher_id=None, original_post_id=None, is_repost=False)
 
     def test_inference_only_does_not_ingest(self):
         result = self.detect(self.post, persist=False)
@@ -27,6 +27,7 @@ class InferenceRoutingTests(unittest.TestCase):
         self.assertIsNone(result['stored'])
         self.assertEqual(result['detection']['classification'], 'Flood')
         self.assertEqual(result['detection']['location'], 'Navotas')
+        self.assertEqual(result['detection']['location_id'], 'navotas')
 
     def test_collector_still_forwards_results(self):
         result = self.detect(self.post)

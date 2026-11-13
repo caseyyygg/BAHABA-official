@@ -13,14 +13,18 @@ if ($action === 'social-accounts' || $action === 'social-browser') {
     $location = requested_location($admin,$write?($input['location_id']??null):($_GET['location']??null));
     $_SESSION['social_csrf'] ??= bin2hex(random_bytes(24));
     if ($write) {
+        if (($input['operation']??'') === 'import-session' && !is_platform_admin($admin)) $fail(403,'Only the super admin can import account sessions.');
+        if (($input['operation']??'') === 'import-session' && (!is_string($input['text']??null) || strlen($input['text']) > 60000)) $fail(422,'Session input must be at most 60 KB.');
         if (!in_array($permission,['full','edit'],true)) $fail(403,'Edit access required.');
         if (!hash_equals($_SESSION['social_csrf'],$_SERVER['HTTP_X_CSRF_TOKEN']??'')) $fail(403,'Refresh social accounts and try again.');
     }
+    $localBrowserConfig = __DIR__ . '/.runtime/social-browser-config.php';
+    if (is_file($localBrowserConfig)) $config = array_replace($config, require $localBrowserConfig);
     $base = rtrim((string)(getenv('SOCIAL_BROWSER_URL') ?: ($config['social_browser_url']??'')),'/');
     $token = (string)(getenv('SOCIAL_BROWSER_TOKEN') ?: ($config['social_browser_token']??''));
     if (!$base || !$token) {
         if ($write) $fail(503,'Social account sign-in needs the hosted browser service.');
-        echo json_encode(['available'=>false,'accounts'=>[],'csrf'=>$_SESSION['social_csrf'],'can_edit'=>false]); exit;
+        echo json_encode(['available'=>false,'accounts'=>[],'csrf'=>$_SESSION['social_csrf'],'can_edit'=>false,'can_import'=>is_platform_admin($admin) && in_array($permission,['full','edit'],true)]); exit;
     }
     $scheme = parse_url($base,PHP_URL_SCHEME);
     $host = parse_url($base,PHP_URL_HOST);
@@ -43,6 +47,6 @@ if ($action === 'social-accounts' || $action === 'social-browser') {
     if (isset($responseHeaders[0]) && preg_match('/\s(\d{3})\s/',$responseHeaders[0],$match)) $status=(int)$match[1];
     if (!is_array($data)) $fail(503,'Social browser service is unavailable. Try again later.');
     if ($status>=400) $fail($status,is_string($data['detail']??null)?$data['detail']:'Browser request failed.');
-    if (!$write) $data+=['available'=>true,'csrf'=>$_SESSION['social_csrf'],'can_edit'=>in_array($permission,['full','edit'],true)];
+    if (!$write) $data+=['available'=>true,'csrf'=>$_SESSION['social_csrf'],'can_edit'=>in_array($permission,['full','edit'],true),'can_import'=>is_platform_admin($admin) && in_array($permission,['full','edit'],true)];
     echo json_encode($data); exit;
 }

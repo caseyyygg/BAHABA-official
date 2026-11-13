@@ -1,4 +1,5 @@
-const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'location-data.php', 'map-reports.php', 'notifications.php', 'resolve-location.php', 'signup.php', 'resend-verification.php', 'verify.php', 'push-device.php'])
+const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'location-data.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'signup.php', 'resend-verification.php', 'verify.php', 'push-device.php'])
+const nlpHealthActions = new Set(['health', 'all-reports', 'nlp-events', 'nlp-progress', 'nlp-posts'])
 
 export default {
   async fetch(request, env) {
@@ -48,6 +49,45 @@ export default {
     if (location) {
       const redirect = new URL(location, target)
       if (redirect.origin === backend.origin) responseHeaders.set('location', url.origin + redirect.pathname + redirect.search + redirect.hash)
+    }
+    // Older PHP uploads can still query a local NLP process. Refresh only
+    // collector health from this deployment's public NLP health endpoint.
+    if (isAdmin && request.method === 'GET' && nlpHealthActions.has(url.searchParams.get('action')) &&
+        upstream.ok && upstream.headers.get('content-type')?.includes('application/json')) {
+      let payload
+      try { payload = await upstream.clone().json() } catch { /* Preserve non-JSON responses. */ }
+      if (payload && (!payload.nlpService?.lgu_social_collectors || payload.nlpService?.service === 'unavailable')) {
+        try {
+          const healthUrl = 'https://bahababa-bantala-nlp.hf.space/health'
+          const cache = caches.default
+          let healthResponse
+          try { healthResponse = await cache.match(healthUrl) } catch { /* Cache is optional. */ }
+          if (!healthResponse) {
+            const controller = new AbortController()
+            const timer = setTimeout(() => controller.abort(), 5000)
+            let live
+            try {
+              const healthHeaders = new Headers({ Accept: 'application/json' })
+              if (env.NLP_HEALTH_TOKEN) healthHeaders.set('Authorization', `Bearer ${env.NLP_HEALTH_TOKEN}`)
+              live = await fetch(healthUrl, { headers: healthHeaders, signal: controller.signal, redirect: 'manual' })
+            } finally { clearTimeout(timer) }
+            responseHeaders.set('X-NLP-Health', 'http-' + live.status)
+            if (live.ok) {
+              const health = await live.json()
+              if (health && typeof health.lgu_social_collectors === 'object' && health.lgu_social_collectors !== null) {
+                healthResponse = Response.json(health, { headers: { 'Cache-Control': 'public, max-age=15' } })
+                try { await cache.put(healthUrl, healthResponse.clone()) } catch { /* Return fresh health when cache storage is unavailable. */ }
+              }
+            }
+          }
+          if (healthResponse) {
+            payload.nlpService = await healthResponse.json()
+            responseHeaders.delete('content-length')
+            responseHeaders.delete('content-encoding')
+            return new Response(JSON.stringify(payload), { status: upstream.status, headers: responseHeaders })
+          }
+        } catch (error) { responseHeaders.set('X-NLP-Health', error.name === 'AbortError' ? 'timeout' : 'unavailable-' + error.name) }
+      }
     }
     return new Response(upstream.body, { status: upstream.status, headers: responseHeaders })
   },

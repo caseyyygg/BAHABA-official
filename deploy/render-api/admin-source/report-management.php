@@ -16,12 +16,12 @@ if ($method === 'GET' && $action === 'managed-reports') {
     if($visibility!=='all'){$where[]='r.map_hidden=?';$params[]=$visibility==='hidden'?1:0;}
     if($status!=='all'){$where[]='r.status=?';$params[]=$status;}
     $search=substr(trim((string)($_GET['search']??'')),0,120);
-    if($search!==''){$where[]='(CAST(r.id AS CHAR) LIKE ? OR r.city LIKE ? OR r.barangay LIKE ? OR r.description LIKE ?)';for($i=0;$i<4;$i++)$params[]='%'.$search.'%';}
+    if($search!==''){$where[]='(CAST(r.id AS CHAR) LIKE ? OR r.city LIKE ? OR r.barangay LIKE ? OR r.reporter LIKE ? OR r.description LIKE ?)';for($i=0;$i<5;$i++)$params[]='%'.$search.'%';}
     $page=filter_var($_GET['page']??1,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100000]]);
     if($page===false){http_response_code(422);echo json_encode(['error'=>'Invalid page.']);exit;}
     $clause=$where?' WHERE '.implode(' AND ',$where):'';
     $stmt=$pdo->prepare('SELECT COUNT(*) FROM reports r'.$clause);$stmt->execute($params);$total=(int)$stmt->fetchColumn();$pages=max(1,(int)ceil($total/50));$page=min($page,$pages);$offset=($page-1)*50;
-    $stmt=$pdo->prepare('SELECT r.id,r.location_id,r.city,r.barangay,r.severity,r.status,r.source,r.platform,r.original_post_url,r.source_posts,r.map_hidden,r.description,r.created_at FROM reports r'.$clause.' ORDER BY r.id DESC LIMIT 50 OFFSET '.$offset);$stmt->execute($params);
+    $stmt=$pdo->prepare('SELECT r.id,r.location_id,r.city,r.barangay,r.severity,r.status,r.reporter,r.source,r.platform,r.original_post_url,r.source_posts,r.map_hidden,r.description,r.created_at FROM reports r'.$clause.' ORDER BY r.id DESC LIMIT 50 OFFSET '.$offset);$stmt->execute($params);
     echo json_encode(['reports'=>$stmt->fetchAll(),'total'=>$total,'page'=>$page,'pages'=>$pages,'platform'=>$platform,'can_hide'=>in_array($permission,['full','edit'],true),'can_delete'=>in_array($permission,['full','edit'],true)]);exit;
 }
 

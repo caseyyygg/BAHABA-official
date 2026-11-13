@@ -42,21 +42,18 @@ export function floodAreasFor(features, reports, nlpEvents, now = Date.now()) {
     ...nlpEvents.map((item) => ({ ...item, fromPost: true }))].filter((item) =>
     !['rejected', 'resolved', 'cancelled'].includes(String(item.status || '').toLowerCase())
     && (!item.fromPost || (Number.isFinite(Number(item.expires_at_ms)) && Number(item.expires_at_ms) > now)))
-  const postWindows = new Map()
   const eligiblePosts = new Set()
+  const seenPosts = new Set()
   for (const item of items.filter(item => item.fromPost)) {
     if (String(item.classification || '').toLowerCase() !== 'flood') continue
-    const rawTime = item.detected_at || item.created_at
+    const rawTime = item.published_at || item.detected_at || item.created_at
     const timestamp = typeof rawTime === 'number' ? rawTime : Date.parse(String(rawTime || '').replace(' ', 'T') + (/Z$|[+-]\d\d:\d\d$/.test(String(rawTime)) ? '' : 'Z'))
-    if (!Number.isFinite(timestamp) || timestamp < now - 15 * 60000 || timestamp > now) continue
-    const landmark = resolveFloodLandmark(item, features)
-    const key = landmark ? `landmark:${landmark.id}` : `${normalize(item.city)}:${normalize(item.barangay)}`
-    if (!landmark && (!normalize(item.city) || !normalize(item.barangay))) continue
-    if (!postWindows.has(key)) postWindows.set(key, new Map())
+    if (!Number.isFinite(timestamp) || timestamp < now - 24 * 60 * 60 * 1000 || timestamp > now) continue
     const identity = `${item.source || item.platform || 'unknown'}:${item.source_post_id || item.post_id || item.id || String(item.description || '').trim().toLowerCase()}`
-    postWindows.get(key).set(identity, item)
+    if (!identity || seenPosts.has(identity)) continue
+    seenPosts.add(identity)
+    eligiblePosts.add(item)
   }
-  for (const window of postWindows.values()) if (window.size >= 20) for (const item of window.values()) eligiblePosts.add(item)
   for (const item of items) {
     if (item.fromPost && !eligiblePosts.has(item)) { ignored += 1; continue }
     const value = String(item.severity || '').toLowerCase()
@@ -137,4 +134,3 @@ export function floodAreasFor(features, reports, nlpEvents, now = Date.now()) {
 export function floodPointsFor(floodAreas) {
   return { type: 'FeatureCollection', features: floodAreas.points || [] }
 }
-

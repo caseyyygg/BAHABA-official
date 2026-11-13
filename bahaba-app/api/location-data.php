@@ -63,9 +63,15 @@ $evacuationCentersStatement = $pdo->prepare(
 $evacuationCentersStatement->execute(['location_id' => $locationId, 'psgc_id' => $locationId]);
 
 require_once __DIR__.'/flood-signals.php';
-$floodSignals=['cities'=>[],'pins'=>[]];
-foreach($ids as $id){$snapshot=bahaba_resident_flood_signals($pdo,$id);$floodSignals['cities']=array_merge($floodSignals['cities'],$snapshot['cities']);$floodSignals['pins']=array_merge($floodSignals['pins'],$snapshot['pins']);}
-// Raw NLP content remains administrative; aggregate signals are explicitly reported, not verified.
+$floodSignals=['cities'=>[],'reports'=>[],'individual_reports'=>[],'pins'=>[]];
+foreach($ids as $id){
+    $snapshot=bahaba_resident_flood_signals($pdo,$id);
+    foreach(['cities','reports','individual_reports','pins'] as $key)$floodSignals[$key]=array_merge($floodSignals[$key],$snapshot[$key]??[]);
+}
+$individualReportsById=[];
+foreach($floodSignals['individual_reports'] as $report)$individualReportsById[$report['id']]=$report;
+$floodSignals['individual_reports']=array_values($individualReportsById);
+// Social post text remains administrative; residents receive only safe per-post location and NLP classification fields.
 
 respond([
     'selected_location' => $locationId,

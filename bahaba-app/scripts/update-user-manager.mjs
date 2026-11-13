@@ -30,9 +30,13 @@ if (existsSync(apiPath)) {
 }
 const htmlPath = resolve(admin, 'index.html');
 let html = readFileSync(htmlPath, 'utf8');
-if (!html.includes('src="user-manager.js')) html = html.replace('</body>', '<script src="user-manager.js?v=20261019-admin-edit-ui"></script>\n</body>');
-else html = html.replace(/src="user-manager\.js(?:\?[^"\s]*)?"/g, 'src="user-manager.js?v=20261019-admin-edit-ui"');
-html = html.replace(/admin-polish\.css\?[^"\s]+/g, 'admin-polish.css?v=20261019-admin-edit-ui');
-html = html.replace(/src="App\.js(?:\?[^"\s]*)?"/g, 'src="App.js?v=20261019-admin-edit-ui"');
+if (!html.includes('href="admin-polish.css')) html = html.replace('</head>', '<link rel="stylesheet" href="admin-polish.css?v=20261022-search-controls">\n</head>');
+copyFileSync(resolve(import.meta.dirname, 'admin-search-selects.js'), resolve(admin, 'admin-search-selects.js'));
+if (!html.includes('src="admin-search-selects.js')) html = html.replace('</body>', '<script src="admin-search-selects.js?v=20261022-search-controls"></script>\n</body>');
+else html = html.replace(/src="admin-search-selects\.js(?:\?[^"\s]*)?"/g, 'src="admin-search-selects.js?v=20261022-search-controls"');
+if (!html.includes('src="user-manager.js')) html = html.replace('</body>', '<script src="user-manager.js?v=20261022-search-controls"></script>\n</body>');
+else html = html.replace(/src="user-manager\.js(?:\?[^"\s]*)?"/g, 'src="user-manager.js?v=20261022-search-controls"');
+html = html.replace(/admin-polish\.css\?[^"\s]+/g, 'admin-polish.css?v=20261022-search-controls');
+html = html.replace(/src="App\.js(?:\?[^"\s]*)?"/g, 'src="App.js?v=20261022-search-controls"');
 writeFileSync(htmlPath, html);
 console.log('Installed searchable user filters, admin account editing, and updated profile modal styling.');

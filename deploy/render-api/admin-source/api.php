@@ -54,12 +54,11 @@ $config = require $sharedApiDirectory . '/config.php';
 require_once $sharedApiDirectory . '/location_helpers.php';
 require_once $sharedApiDirectory . '/psgc.php';
 require_once $sharedApiDirectory . '/push.php';
+// NLP feeds require location aliases for legacy and PSGC municipality IDs.
 require_once __DIR__ . '/nlp-location.php';
 require_once __DIR__ . '/report-point.php';
-$nlpIngestToken = (string) ($config['nlp_ingest_token'] ?? '');
-if ($nlpIngestToken === '' || $nlpIngestToken === 'replace-with-a-long-random-secret') {
-    $nlpIngestToken = (string) (getenv('BAHABA_INGEST_TOKEN') ?: '');
-}
+require_once __DIR__ . '/nlp-timestamps.php';
+$nlpIngestToken = (string) (getenv('BAHABA_INGEST_TOKEN') ?: ($config['nlp_ingest_token'] ?? ''));
 $nlpIngestionConfigured = $nlpIngestToken !== '' && $nlpIngestToken !== 'replace-with-a-long-random-secret';
 
 function nlp_service_status(): array
@@ -87,6 +86,7 @@ try {
     echo json_encode(['error' => 'Database connection failed.']);
     exit;
 }
+$pdo->exec("SET time_zone = '+00:00'");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -210,6 +210,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS nlp_events (
     confidence_percent DECIMAL(5,2) NOT NULL,
     post_url VARCHAR(2048) NULL,
     detected_at DATETIME NOT NULL,
+    published_at DATETIME NULL,
     received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_nlp_detected_at (detected_at),
     INDEX idx_nlp_city_barangay (city, barangay),
@@ -219,6 +220,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS nlp_events (
 if (!$pdo->query("SHOW COLUMNS FROM nlp_events LIKE 'post_url'")->fetch()) {
     $pdo->exec('ALTER TABLE nlp_events ADD COLUMN post_url VARCHAR(2048) NULL AFTER confidence_percent');
 }
+bahaba_ensure_column($pdo, 'nlp_events', 'published_at', 'DATETIME NULL');
 
 require_once $sharedApiDirectory . '/report-retention.php';
 
@@ -453,7 +455,7 @@ if ($method === 'GET' && $action === 'all-reports') {
     )->fetchAll();
     $nlpEvents = $pdo->query(
         'SELECT id, source, source_post_id, post_text, post_url, location, city, barangay, classification,
-                severity, urgency, confidence_percent, detected_at, received_at
+                severity, urgency, confidence_percent, detected_at, received_at, published_at
          FROM nlp_events WHERE received_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR ORDER BY detected_at DESC, id DESC'
     )->fetchAll();
 
@@ -496,9 +498,11 @@ if ($method === 'GET' && in_array($action, ['nlp-events', 'nlp-progress', 'nlp-p
         echo json_encode(['error' => 'Admin account is unavailable.']);
         exit;
     }
-    if (!is_platform_admin($admin)) {
+    // Current report events are location-scoped below for authorized admins.
+    // Keep the unbounded historical post archive platform-admin only.
+    if ($action === 'nlp-posts' && !is_platform_admin($admin)) {
         http_response_code(403);
-        echo json_encode(['error' => 'The NLP API is available to platform administrators only.']);
+        echo json_encode(['error' => 'The NLP post archive is available to platform administrators only.']);
         exit;
     }
     $permission = strtolower((string) ($admin['acls']['approval_board'] ?? 'no_access'));
@@ -510,20 +514,46 @@ if ($method === 'GET' && in_array($action, ['nlp-events', 'nlp-progress', 'nlp-p
 
     $where = $action === 'nlp-posts' ? 'WHERE 1=1' : 'WHERE received_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
     $params = [];
-    if (!is_platform_admin($admin) || $permission !== 'full') {
-        $location = requested_location($admin, $admin['assigned_location'] ?? $admin['city'] ?? null);
-        $where .= ' AND location_id = :location_id';
-        $params['location_id'] = $location['id'];
-        if (!empty($admin['barangay'])) {
-            $where .= ' AND barangay = :barangay';
-            $params['barangay'] = $admin['barangay'];
+    if ($action === 'nlp-progress') {
+        // This branch applies the same assigned-location checks as other
+        // admin data. The map may request another location only for a
+        // platform admin with full report access.
+        $requestedLocation = trim((string) ($_GET['location'] ?? ''));
+        if (!is_platform_admin($admin) || $permission !== 'full') {
+            $location = requested_location($admin, $admin['assigned_location'] ?? $admin['city'] ?? null);
+        } else {
+            $location = requested_location($admin, $requestedLocation !== '' ? $requestedLocation : ($admin['assigned_location'] ?? null));
         }
+        $locationIds = bahaba_nlp_location_filter_ids($location['id']);
+        $locationPlaceholders = [];
+        foreach ($locationIds as $index => $locationId) {
+            $parameter = 'location_id_' . $index;
+            $locationPlaceholders[] = ':' . $parameter;
+            $params[$parameter] = $locationId;
+        }
+        $where .= ' AND location_id IN (' . implode(', ', $locationPlaceholders) . ')';
+    } elseif (!is_platform_admin($admin) || $permission !== 'full') {
+        $location = requested_location($admin, $admin['assigned_location'] ?? $admin['city'] ?? null);
+        $locationIds = bahaba_nlp_location_filter_ids($location['id']);
+        $locationPlaceholders = [];
+        foreach ($locationIds as $index => $locationId) {
+            $parameter = 'location_id_' . $index;
+            $locationPlaceholders[] = ':' . $parameter;
+            $params[$parameter] = $locationId;
+        }
+        $where .= ' AND location_id IN (' . implode(', ', $locationPlaceholders) . ')';
     } else {
         $requestedLocation = trim((string) ($_GET['location'] ?? ''));
         if ($requestedLocation !== '') {
             $location = requested_location($admin, $requestedLocation);
-            $where .= ' AND location_id = :location_id';
-            $params['location_id'] = $location['id'];
+            $locationIds = bahaba_nlp_location_filter_ids($location['id']);
+            $locationPlaceholders = [];
+            foreach ($locationIds as $index => $locationId) {
+                $parameter = 'location_id_' . $index;
+                $locationPlaceholders[] = ':' . $parameter;
+                $params[$parameter] = $locationId;
+            }
+            $where .= ' AND location_id IN (' . implode(', ', $locationPlaceholders) . ')';
         }
         $requestedCity = trim((string) ($_GET['city'] ?? ''));
         $requestedBarangay = trim((string) ($_GET['barangay'] ?? ''));
@@ -539,13 +569,20 @@ if ($method === 'GET' && in_array($action, ['nlp-events', 'nlp-progress', 'nlp-p
 
     if ($action === 'nlp-progress') {
         require_once __DIR__.'/nlp-flood-events.php';
-        $selected = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? null);
+        $selected = $location;
         $city = bahaba_flood_city($selected['id'] ?? null);
-        $snapshot = $city ? bahaba_flood_snapshot($pdo,$city['id']) : ['required_posts'=>15,'window_minutes'=>20,'inactivity_minutes'=>60,'cities'=>[],'pins'=>[]];
+        if ($city) bahaba_flood_backfill_recent($pdo,$city['id']);
+        $snapshot = $city ? bahaba_flood_snapshot($pdo,$city['id']) : ['required_posts'=>BAHABA_FLOOD_POSTS,'window_minutes'=>(int)(BAHABA_FLOOD_WINDOW/60),'inactivity_minutes'=>(int)(BAHABA_FLOOD_IDLE/60),'cities'=>[],'pins'=>[]];
+        $summaryStmt=$pdo->prepare("SELECT COUNT(*) total,SUM(classification='Flood') flood,SUM(classification='Flood' AND severity='Low') low_flood,SUM(classification='Flood' AND severity IN ('Mid','Medium')) mid_flood,SUM(classification='Flood' AND severity='High') high_flood FROM nlp_events WHERE location_id IN (" . implode(', ', $locationPlaceholders) . ") AND received_at>=DATE_SUB(NOW(),INTERVAL 24 HOUR)");
+        foreach ($locationIds as $index => $locationId) $summaryStmt->bindValue('location_id_' . $index, $locationId);
+        $summaryStmt->execute();$summary=$summaryStmt->fetch()?:[];
+        $snapshot['flood_signals_24h']=(int)($summary['flood']??0);
+        $snapshot['flood_signal_severity_24h']=['Low'=>(int)($summary['low_flood']??0),'Mid'=>(int)($summary['mid_flood']??0),'High'=>(int)($summary['high_flood']??0)];
+        $snapshot['majority_severity_24h']=bahaba_flood_majority_severity($snapshot['flood_signal_severity_24h']);
         if (!is_platform_admin($admin) && !empty($admin['barangay']) && $admin['barangay']!=='All barangays') {
-            $snapshot['pins']=array_values(array_filter($snapshot['pins'],fn($pin)=>$pin['precision_level']==='barangay' && $pin['label']===$admin['barangay']));
+            $snapshot['pins']=bahaba_flood_barangay_admin_pins($snapshot['pins'],(string)$admin['barangay'],(string)($location['map_city']??$location['city']??''));
         }
-        $snapshot['note']='Reported flooding, not official verification. City alerts expire after 60 minutes without a new valid publication. Historical events and pins are preserved.';
+        $snapshot['note']='Reported flooding, not official verification. City alerts and map pins reset at midnight Philippine time. Historical events are preserved.';
         echo json_encode($snapshot);
         exit;
     }
@@ -553,7 +590,7 @@ if ($method === 'GET' && in_array($action, ['nlp-events', 'nlp-progress', 'nlp-p
     $offset = $action === 'nlp-posts' ? max(0, min(10000000, (int) ($_GET['offset'] ?? 0))) : 0;
     $eventsStmt = $pdo->prepare(
         'SELECT id, source, source_post_id, post_text, post_url, location, city, barangay, classification,
-                severity, urgency, confidence_percent, detected_at, received_at
+                severity, urgency, confidence_percent, detected_at, received_at, published_at
          FROM nlp_events ' . $where . ' ORDER BY detected_at DESC, id DESC LIMIT :limit OFFSET :offset'
     );
     foreach ($params as $key => $value) $eventsStmt->bindValue($key, $value);
@@ -756,8 +793,8 @@ if ($method === 'POST') {
         $barangay = trim((string) ($input['barangay'] ?? ''));
         $address = trim((string) ($input['address'] ?? ''));
         $mapLink = trim((string) ($input['map_link'] ?? ''));
-        $capacity = $parseUnsignedInteger($input['capacity'] ?? null);
-        $evacuees = $parseUnsignedInteger($input['evacuees'] ?? 0);
+        $capacity = array_key_exists('capacity', $input) ? $parseUnsignedInteger($input['capacity']) : 0;
+        $evacuees = array_key_exists('evacuees', $input) ? $parseUnsignedInteger($input['evacuees']) : 0;
         if ($name === '' || strlen($name) > 255) {
             http_response_code(422);
             echo json_encode(['error' => 'Enter a center name no longer than 255 characters.']);
@@ -778,9 +815,9 @@ if ($method === 'POST') {
             echo json_encode(['error' => 'Enter a valid Google Maps link.']);
             exit;
         }
-        if ($capacity === null || $capacity < 1 || $capacity > 1000000) {
+        if ($capacity === null || $capacity > 1000000) {
             http_response_code(422);
-            echo json_encode(['error' => 'Capacity must be a whole number between 1 and 1,000,000.']);
+            echo json_encode(['error' => 'Capacity must be a whole number between 0 and 1,000,000.']);
             exit;
         }
         if ($evacuees === null || $evacuees > $capacity) {
@@ -1047,11 +1084,12 @@ if ($method === 'POST') {
         }
         if ($confidence <= 1) $confidence *= 100;
 
+        $detectedAt = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         try {
-            $detectedAt = empty($input['timestamp']) ? new DateTimeImmutable('now') : new DateTimeImmutable((string) $input['timestamp']);
-        } catch (Exception $exception) {
+            $publishedAt = bahaba_nlp_publication_time($input['published_at'] ?? $input['timestamp'] ?? null, $detectedAt);
+        } catch (InvalidArgumentException $exception) {
             http_response_code(422);
-            echo json_encode(['error' => 'timestamp must be a valid date/time.']);
+            echo json_encode(['error' => $exception->getMessage()]);
             exit;
         }
         $source = trim((string) ($input['source'] ?? 'Unknown'));
@@ -1072,7 +1110,7 @@ if ($method === 'POST') {
             ? bahaba_normalize_location_id($requestedLocationId)
             : bahaba_normalize_location_id($city);
         if ($requestedLocationId === '' && !$locationId) {
-            $locationId = bahaba_nlp_location_id($location !== '' ? $location : $postText);
+            $locationId = bahaba_nlp_location_id_from_hint($location, $postText);
         }
         if ($city === '' && $locationId) {
             $city = (string) (bahaba_location_by_id($locationId)['city'] ?? '');
@@ -1086,11 +1124,11 @@ if ($method === 'POST') {
             exit;
         }
         $statement = $pdo->prepare(
-                        'INSERT INTO nlp_events (source, source_post_id, post_text, post_url, location, city, location_id, barangay, classification, severity, urgency, confidence_percent, detected_at)
-                         VALUES (:source, :post_id, :post_text, :post_url, :location, :city, :location_id, :barangay, :classification, :severity, :urgency, :confidence, :detected_at)
+                        'INSERT INTO nlp_events (source, source_post_id, post_text, post_url, location, city, location_id, barangay, classification, severity, urgency, confidence_percent, detected_at, published_at)
+                         VALUES (:source, :post_id, :post_text, :post_url, :location, :city, :location_id, :barangay, :classification, :severity, :urgency, :confidence, :detected_at, :published_at)
              ON DUPLICATE KEY UPDATE post_text = VALUES(post_text), location = VALUES(location), city = VALUES(city),
                              post_url = VALUES(post_url), location_id = VALUES(location_id), barangay = VALUES(barangay), classification = VALUES(classification), severity = VALUES(severity),
-               urgency = VALUES(urgency), confidence_percent = VALUES(confidence_percent), detected_at = LEAST(detected_at, VALUES(detected_at))'
+               urgency = VALUES(urgency), confidence_percent = VALUES(confidence_percent), published_at = COALESCE(VALUES(published_at), published_at)'
         );
         $statement->execute([
             'source' => $source,
@@ -1106,8 +1144,10 @@ if ($method === 'POST') {
             'urgency' => ucfirst($urgency),
             'confidence' => round($confidence, 2),
             'detected_at' => $detectedAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
+            'published_at' => $publishedAt?->format('Y-m-d H:i:s'),
         ]);
         $eventId=(int)$pdo->lastInsertId();
+        $input['timestamp'] = $publishedAt?->format('c');
         require_once __DIR__.'/nlp-threshold.php';
         $threshold=$classification==='flood'?bahaba_nlp_threshold($pdo,$locationId,$barangay):['required_posts'=>15,'window_minutes'=>20,'eligible_posts'=>0,'report_id'=>null];
         http_response_code(201);

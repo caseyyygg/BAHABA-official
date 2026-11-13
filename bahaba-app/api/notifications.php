@@ -53,7 +53,7 @@ $stmt = $pdo->prepare("SELECT e.* FROM resident_notification_events e
     LEFT JOIN nlp_city_flood_events fe ON e.kind='flood_signal' AND fe.id=e.record_id
     WHERE e.id > ? AND e.id <= ? AND e.psgc_id IN ($placeholders)
       AND ((e.kind='flood' AND r.status='verified')
-        OR (e.kind='flood_signal' AND fe.status='ACTIVE' AND fe.last_post_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 MINUTE))
+        OR (e.kind='flood_signal' AND fe.status='ACTIVE' AND fe.last_post_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR))
         OR (e.kind='advisory' AND a.status='published' AND a.expires_at > NOW()))
     ORDER BY e.id LIMIT 200");
 $stmt->execute(array_merge([$after, $latest], $ids));

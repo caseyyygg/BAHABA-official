@@ -165,21 +165,21 @@ export default function CommandPage({ selectedCity, availableLocations = [], sel
           <a className="al-911" href="tel:911" aria-label="Call National Emergency 911">911</a>
         </section>
 
-        {/* Evacuation centers */}
-        <section className="cc-card evacuation-centers-panel" aria-label="Evacuation centers">
+        {/* Evacuation places */}
+        <section className="cc-card evacuation-centers-panel" aria-label="Evacuation places">
           <div className="cc-card-head">
             <span className="cc-pill-ic blue"><Glyph name="shelter" /></span>
-            <h2 className="cc-title">Evacuation centers · {evacuationCenters.length}</h2>
+            <h2 className="cc-title">Evacuation places · {evacuationCenters.length}</h2>
             <span className={`cc-badge ${evacuationCenters.length ? 'ok' : 'info'}`}>{evacuationCenters.length ? 'LGU shared' : 'None yet'}</span>
           </div>
-          <p className="cc-sub">Centers shared by your local LGU.</p>
+          <p className="cc-sub">Places shared by your local LGU.</p>
 
           <div className="cc-list">
             {evacuationCenters.map((center) => {
               const capacity = Number(center.capacity) || 0
               const evacuees = Number(center.evacuees) || 0
               const occupancy = capacity > 0 ? Math.min(100, Math.round((evacuees / capacity) * 100)) : 0
-              const occupancyTone = capacity <= 0 ? 'muted' : occupancy >= 90 ? 'danger' : occupancy >= 60 ? 'warn' : 'ok'
+              const occupancyTone = occupancy >= 90 ? 'danger' : occupancy >= 60 ? 'warn' : 'ok'
               const mapLink = googleMapsLink(center.map_link)
               return (
                 <ExpandableRow
@@ -193,18 +193,20 @@ export default function CommandPage({ selectedCity, availableLocations = [], sel
                           <strong>{center.name}</strong>
                           <small>{center.barangay}{center.city ? `, ${center.city}` : ''}</small>
                         </div>
-                        <span className={`cc-badge ${occupancyTone}`}>{capacity > 0 ? `${occupancy}% full` : 'No capacity set'}</span>
+                        {capacity > 0 && <span className={`cc-badge ${occupancyTone}`}>{occupancy}% full</span>}
                       </div>
                       {mapLink && <a className="evacuation-map-link" href={mapLink} target="_blank" rel="noopener noreferrer">Open in Google Maps <span aria-hidden="true">↗</span></a>}
-                      <div className="cc-capacity" role="img" aria-label={`${occupancy}% occupied`}>
-                        <span style={{ width: `${occupancy}%` }} />
-                      </div>
+                      {capacity > 0 && (
+                        <div className="cc-capacity" role="img" aria-label={`${occupancy}% occupied`}>
+                          <span style={{ width: `${occupancy}%` }} />
+                        </div>
+                      )}
                     </>
                   )}
                 >
                   <dl>
                     {center.address && <div><dt>Address</dt><dd>{center.address}</dd></div>}
-                    <div><dt>Occupancy</dt><dd>{evacuees.toLocaleString()} / {capacity.toLocaleString()} spaces filled</dd></div>
+                    {capacity > 0 && <div><dt>Occupancy</dt><dd>{evacuees.toLocaleString()} / {capacity.toLocaleString()} spaces filled</dd></div>}
                     {center.created_by && <div><dt>Shared by</dt><dd>{center.created_by}</dd></div>}
                   </dl>
                 </ExpandableRow>
@@ -213,7 +215,7 @@ export default function CommandPage({ selectedCity, availableLocations = [], sel
             {!evacuationCenters.length && (
               <div className="cc-empty">
                 <span className="cc-pill-ic blue"><Glyph name="info" /></span>
-                <p>No evacuation centers have been shared for {selectedCity || 'your location'} yet.</p>
+                <p>No evacuation places have been shared for {selectedCity || 'your location'} yet.</p>
               </div>
             )}
           </div>

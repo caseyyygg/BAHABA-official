@@ -8,5 +8,62 @@
     "contextAliases": ["barangay hall", "brgy hall", "brgy. hall"],
     "coordinates": [120.79808555, 14.841551375],
     "source": "https://www.openstreetmap.org/way/308188924"
+  },
+  {
+    "id": "osm-way-623502739",
+    "name": "Tangos National High School",
+    "city": "Navotas",
+    "city_id": "1380900000",
+    "barangay": "Tangos North",
+    "barangay_feature_id": "PH1307503017",
+    "aliases": [
+      "tangos national high school",
+      "tangos north high school",
+      "tangos north highschool",
+      "navotas national high school tangos annex"
+    ],
+    "contextAliases": [],
+    "coordinates": [120.932092, 14.674708],
+    "source": "https://www.openstreetmap.org/way/623502739",
+    "verification_reference": "https://www.openstreetmap.org/way/623502739"
+  },
+  {
+    "id": "osm-way-801738590",
+    "name": "Tangos Elementary School",
+    "city": "Navotas",
+    "city_id": "1380900000",
+    "barangay": "Tangos North",
+    "barangay_feature_id": "PH1307503017",
+    "aliases": [
+      "tangos elementary school",
+      "tangos elementary",
+      "tangos elem school",
+      "tangos elem",
+      "tangos navotas elementary",
+      "tangos navotas elem"
+    ],
+    "contextAliases": [],
+    "coordinates": [120.9346518, 14.6737408],
+    "source": "https://www.openstreetmap.org/way/801738590",
+    "verification_reference": "https://www.openstreetmap.org/way/801738590"
+  },
+  {
+    "id": "osm-way-801743307",
+    "name": "Tangos I Elementary School",
+    "city": "Navotas",
+    "city_id": "1380900000",
+    "barangay": "Tangos North",
+    "barangay_feature_id": "PH1307503017",
+    "aliases": [
+      "tangos i elementary school",
+      "tangos i elementary",
+      "tangos i elem",
+      "tangos north elementary school",
+      "tangos north elem"
+    ],
+    "contextAliases": [],
+    "coordinates": [120.9323363, 14.6740483],
+    "source": "https://www.openstreetmap.org/way/801743307",
+    "verification_reference": "https://www.openstreetmap.org/way/801743307"
   }
 ]

@@ -72,6 +72,38 @@ Do not commit `api/config.php`; it is already ignored because it contains SMTP c
 The schema includes `admin_users` because the regular login API checks it to distinguish reserved admin addresses. The supplied LGU test accounts are regular app accounts, not admin-role accounts.
 Install the mail dependency with `composer install --working-dir=api` only if you also want to use signup and email verification.
 
+## Google Play Android release
+
+The Android application ID is `com.bantala.floodapp`; keep it unchanged after the first Play release. Android's target SDK is 36. Release bundles must be signed with the upload key associated with the Play Console app.
+
+1. If this app already has a Play Console listing, use that listing's existing upload key. For a first release, create and securely back up an upload key before proceeding; losing it can block future updates.
+2. Keep the keystore outside this repository. Add the following values to your user-level Gradle properties file at `%USERPROFILE%\.gradle\gradle.properties` (create the file if needed):
+
+   ```properties
+   BAHABA_RELEASE_STORE_FILE=C:/absolute/path/to/upload-key.jks
+   BAHABA_RELEASE_STORE_PASSWORD=your-keystore-password
+   BAHABA_RELEASE_KEY_ALIAS=your-key-alias
+   BAHABA_RELEASE_KEY_PASSWORD=your-key-password
+   ```
+
+   Replace the example values locally. Never commit the keystore or these passwords.
+3. Use JDK 21 for Gradle. Check `.\gradlew.bat --version` and confirm both the Launcher JVM and Daemon JVM are 21. From `bahaba-app`, build and sync the Android web assets, then build the signed Android App Bundle in PowerShell:
+
+   ```powershell
+   npm run build:android
+   if ($?) { Push-Location android; .\gradlew.bat bundleRelease; Pop-Location }
+   ```
+
+   The Play upload file is `android\app\build\outputs\bundle\release\app-release.aab`. Release bundle and APK tasks fail if signing properties are missing or the keystore path is invalid.
+4. Before each subsequent upload, increase `versionCode` in `android\app\build.gradle`; Google Play requires each uploaded version code to be greater than the previous one. Test the release build on a real device before rollout.
+5. Complete the Play Console listing and required review items: privacy policy URL, Data safety declarations, content rating, app access/test credentials if login is required, store listing graphics/screenshots, and any requested testing track. Verify each disclosure against the app's actual collection and sharing behavior.
+
+This repository prepares the Android build, but publishing still requires the developer's signing key and completion of the Play Console review and declarations.
+
+## Privacy and account deletion
+
+The public privacy policy is served at `/privacy/`, and the account-deletion request page at `/delete-account/`. Cloudflare Pages includes these pages in the regular Vite output. The deletion page emails a one-time confirmation link; confirm SMTP is configured in the PHP API before publishing the web page. The signed-in app also provides **Settings → Delete account**, requiring the current password. Both paths delete the account, password-reset state, and registered push devices. Public flood-safety and administrative report records are not account-linked and may be retained for public-safety and record-integrity purposes.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

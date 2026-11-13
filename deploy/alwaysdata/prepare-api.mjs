@@ -11,7 +11,7 @@ const apiSite = resolve(output, 'api-site')
 mkdirSync(resolve(apiSite, 'api'), { recursive: true })
 
 const residentFiles = [
-  'bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'push.php', 'push-device.php', 'push-dispatch.php',
+  'bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'push.php', 'push-device.php', 'push-dispatch.php',
   'index.php', 'location-data.php', 'location_helpers.php', 'psgc.php', 'map-reports.php', 'flood-signals.php',
   'notifications.php', 'resolve-location.php', 'municipality-boundaries.php',
   'municipality-boundaries.json', 'municipality-geometry', 'login.php', 'logout.php',
@@ -29,9 +29,10 @@ cpSync(resolve(here, 'config.example.php'), resolve(apiSite, 'api/config.example
 cpSync(resolve(root, 'deploy/render-api/healthz.php'), resolve(apiSite, 'healthz.php'))
 cpSync(resolve(app, 'location-config.json'), resolve(apiSite, 'location-config.json'))
 cpSync(resolve(app, 'psgc-registry.json'), resolve(apiSite, 'psgc-registry.json'))
+cpSync(resolve(app, 'src/assets/flood-landmarks.json'), resolve(apiSite, 'flood-landmarks.json'))
 
 for (const name of [
-  'api.php', 'nlp-location.php', 'report-point.php', 'report-management.php',
+  'api.php', 'nlp-location.php', 'nlp-timestamps.php', 'report-point.php', 'report-management.php',
   'nlp-threshold.php', 'nlp-flood-events.php', 'expire-nlp-events.php', 'collected-history.php', 'team-deployments.php',
   'social-accounts.php', 'trusted-publishers.php', 'team-barangays.json', 'map-data',
 ]) {

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>BANTALA Account Deletion</title>
+    <style>
+      :root { font: 16px/1.55 system-ui, sans-serif; color: #17324d; background: #f3f7fb; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 32px 16px; }
+      main { max-width: 520px; margin: auto; padding: 30px; border-radius: 20px; background: white; box-shadow: 0 12px 40px #17324d12; }
+      h1 { margin-top: 0; line-height: 1.2; }
+      label { display: block; margin: 20px 0 7px; font-weight: 650; }
+      input, button { width: 100%; min-height: 48px; padding: 11px 13px; border: 1px solid #c8d6e5; border-radius: 10px; font: inherit; }
+      button { margin-top: 14px; border: 0; background: #176ac6; color: white; font-weight: 700; cursor: pointer; }
+      button:disabled { opacity: .6; cursor: wait; }
+      #status { min-height: 24px; }
+      a { color: #075eb2; }
+      @media (max-width: 520px) { body { padding: 12px; } main { padding: 22px 18px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Delete your BANTALA account</h1>
+      <p>To request deletion without signing in, enter the email address on your BANTALA account. We will email a one-time confirmation link. Your account is not deleted until you open that link. The link expires after 24 hours.</p>
+      <form id="request-form">
+        <label for="email">Account email address</label>
+        <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
+        <button id="request-button" type="submit">Send confirmation link</button>
+      </form>
+      <section id="confirm-section" hidden>
+        <p>Confirming will permanently delete your account and its saved account data, including registered push devices. Public-safety or administrative report records may be retained where needed for public safety and record integrity.</p>
+        <button id="confirm-button" type="button">Confirm account deletion</button>
+      </section>
+      <p id="status" role="status" aria-live="polite"></p>
+      <p><a href="/privacy/">Read the BANTALA Privacy Policy</a></p>
+    </main>
+    <script>
+      const status = document.getElementById('status')
+      const requestForm = document.getElementById('request-form')
+      const requestButton = document.getElementById('request-button')
+      const confirmSection = document.getElementById('confirm-section')
+      const confirmButton = document.getElementById('confirm-button')
+      const token = new URLSearchParams(location.search).get('token')
+      if (token) {
+        requestForm.hidden = true
+        confirmSection.hidden = false
+        history.replaceState(null, '', location.pathname)
+      }
+
+      requestForm.addEventListener('submit', async (event) => {
+        event.preventDefault()
+        requestButton.disabled = true
+        status.textContent = ''
+        try {
+          const response = await fetch('/api/request-account-deletion.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: document.getElementById('email').value.trim() }),
+          })
+          const result = await response.json()
+          if (!response.ok) throw new Error(result.error || 'Could not send the confirmation link. Please try again later.')
+          status.textContent = result.message
+        } catch (error) {
+          status.textContent = error.message || 'Could not reach BANTALA. Please try again later.'
+        } finally {
+          requestButton.disabled = false
+        }
+      })
+
+      confirmButton.addEventListener('click', async () => {
+        confirmButton.disabled = true
+        status.textContent = ''
+        try {
+          const response = await fetch('/api/confirm-account-deletion.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          })
+          const result = await response.json()
+          if (!response.ok) throw new Error(result.error || 'Could not confirm account deletion.')
+          confirmSection.hidden = true
+          status.textContent = result.message
+        } catch (error) {
+          status.textContent = error.message || 'Could not reach BANTALA. Please try again later.'
+          confirmButton.disabled = false
+        }
+      })
+    </script>
+  </body>
+</html>

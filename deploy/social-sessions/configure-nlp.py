@@ -46,11 +46,12 @@ def remote_file(name):
 
 
 docker = remote_file('Dockerfile')
-if 'playwright install --with-deps chrome' not in docker:
+if ('playwright install --with-deps chrome' not in docker
+        and 'playwright install --with-deps chromium' not in docker):
     old = '    && python -m pip install --no-cache-dir -r requirements.txt'
     if old not in docker:
         raise RuntimeError('Unexpected remote Dockerfile; inspect before patching')
-    docker = docker.replace(old, old + ' \\\n    && playwright install --with-deps chrome', 1)
+    docker = docker.replace(old, old + ' \\\n    && playwright install --with-deps chromium', 1)
 source = remote_file('app.py')
 if 'def classify_only(' not in source:
     old = 'def _detect_and_forward(post: DetectionRequest) -> dict[str, Any]:'

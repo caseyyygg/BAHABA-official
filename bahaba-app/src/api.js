@@ -27,6 +27,7 @@ async function request(endpoint, options = {}) {
       payload.error
       || `The BANTALA API returned HTTP ${response.status}. Check that the PHP API server is running and review its logs.`,
     )
+    error.status = response.status
     error.needsVerification = payload.needsVerification
     throw error
   }
@@ -38,13 +39,15 @@ export const login = (data) => request('login.php', { method: 'POST', body: JSON
 export const resendVerification = () => request('resend-verification.php', { method: 'POST' })
 export const checkVerification = () => request('me.php')
 export const logout = () => request('logout.php', { method: 'POST' })
-export const getProfile = () => request('profile.php')
+export const deleteAccount = data => request('delete-account.php', { method: 'POST', body: JSON.stringify(data) })
+export const getProfile = () => request('profile.php', { cache: 'no-store' })
 export const updateProfile = (data) => request('profile.php', { method: 'PUT', body: JSON.stringify(data) })
 export const getLocationData = (current = '', location = '') => request(`location-data.php?${new URLSearchParams({ ...(current ? { current } : {}), ...(location ? { location } : {}) })}`, { cache: 'no-store' })
 export const getNotificationEvents = (after, current = '') => request(`notifications.php?${new URLSearchParams({ ...(after === null ? {} : { after }), ...(current ? { current } : {}) })}`, { cache: 'no-store' })
 export const registerPushDevice = token => request('push-device.php', { method: 'POST', body: JSON.stringify({ action: 'register', token }) })
 export const unregisterPushDevice = token => request('push-device.php', { method: 'POST', body: JSON.stringify({ action: 'unregister', token }) })
 export const getMapReports = (params = {}) => request(`map-reports.php?${new URLSearchParams(params)}`, { cache: 'no-store' })
+export const getFloodSignals = (location = '') => request(`flood-signals.php?${new URLSearchParams(location ? { location } : {})}`, { cache: 'no-store' })
 export const resolveCurrentLocation = ({ latitude, longitude, accuracy }) => request(`resolve-location.php?${new URLSearchParams({ latitude, longitude, accuracy })}`)
 export const getLocationBounds = (location) => request(`resolve-location.php?${new URLSearchParams({ location })}`)
 

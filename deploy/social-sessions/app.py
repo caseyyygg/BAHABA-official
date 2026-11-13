@@ -64,6 +64,45 @@ def authenticated(platform, cookies):
     return required[platform].issubset(names)
 
 
+def imported_state(platform, text):
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        parsed = text
+    domain = {'Facebook': '.facebook.com', 'X': '.x.com', 'Threads': '.threads.com'}[platform]
+    if isinstance(parsed, str):
+        parsed = dict(part.strip().split('=', 1) for part in parsed.split(';') if '=' in part)
+    if isinstance(parsed, dict):
+        parsed = parsed.get('cookies', [{'name': name, 'value': value} for name, value in parsed.items()])
+    if not isinstance(parsed, list) or not parsed:
+        raise HTTPException(422, 'Paste a cookie header, cookie JSON, or exported browser cookies.')
+    allowed = {'Facebook': ('facebook.com',), 'X': ('x.com', 'twitter.com'),
+               'Threads': ('threads.com', 'threads.net', 'instagram.com')}[platform]
+    cookies = []
+    for item in parsed:
+        if not isinstance(item, dict) or not isinstance(item.get('name'), str) or not isinstance(item.get('value'), str):
+            raise HTTPException(422, 'Each cookie needs a name and a text value.')
+        cookie_domain = item.get('domain', domain)
+        if not isinstance(cookie_domain, str) or not any(cookie_domain.lstrip('.') == d or cookie_domain.endswith('.' + d) for d in allowed):
+            raise HTTPException(422, 'Cookie domains must belong to the selected platform.')
+        expiry = item.get('expires', item.get('expirationDate', -1))
+        if expiry is None or item.get('session') is True:
+            expiry = -1
+        if not isinstance(expiry, (int, float)):
+            raise HTTPException(422, 'Invalid cookie expiration.')
+        cookie_path = item.get('path', '/')
+        if not isinstance(cookie_path, str) or not cookie_path.startswith('/'):
+            raise HTTPException(422, 'Invalid cookie path.')
+        cookies.append({'name': item['name'], 'value': item['value'], 'domain': cookie_domain,
+                        'path': cookie_path, 'expires': expiry, 'httpOnly': bool(item.get('httpOnly', False)),
+                        'secure': bool(item.get('secure', True)),
+                        'sameSite': item.get('sameSite') if item.get('sameSite') in {'Strict', 'Lax', 'None'} else 'Lax'})
+    if not authenticated(platform, cookies):
+        required = {'Facebook': 'c_user and xs', 'X': 'auth_token and ct0', 'Threads': 'sessionid'}[platform]
+        raise HTTPException(422, 'Include unexpired ' + required + ' cookies for ' + platform + '.')
+    return {'cookies': cookies, 'origins': []}
+
+
 async def fill_login_field(page, platform, operation, text):
     if not text:
         raise HTTPException(422, 'Enter the field value first.')
@@ -143,7 +182,7 @@ class Action(BaseModel):
     operation: str
     x: float = Field(default=0, ge=0, le=1000)
     y: float = Field(default=0, ge=0, le=720)
-    text: str = Field(default='', max_length=2000)
+    text: str = Field(default='', max_length=60000)
     key: str = ''
     delta: int = Field(default=0, ge=-1000, le=1000)
 
@@ -156,6 +195,15 @@ async def operate(data: Action):
         session = sessions.get(key)
         if session and session['owner'] != data.owner:
             raise HTTPException(409, 'Another administrator is signing in for this LGU. Try again later.')
+        if data.operation == 'import-session':
+            state = imported_state(data.platform, data.text)
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            temporary = path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(state), encoding='utf-8')
+            temporary.chmod(0o600)
+            temporary.replace(path)
+            await close(key)
+            return {'connected': True}
         if data.operation == 'disconnect':
             await close(key)
             path.unlink(missing_ok=True)

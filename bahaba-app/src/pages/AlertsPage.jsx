@@ -82,8 +82,17 @@ export default function AlertsPage({
   const [signalClock, setSignalClock] = useState(Date.now())
   useEffect(() => { const timer = setInterval(() => setSignalClock(Date.now()), 30000); return () => clearInterval(timer) }, [])
   const socialAlerts = activeCitySignals(cityFloodSignals, signalClock)
+  const socialReports = (cityFloodSignals?.reports || []).filter(report =>
+    Number(report.expires_at_ms) > signalClock && Number(report.post_count) > 0
+  )
+  const socialPins = (cityFloodSignals?.pins || []).filter(pin =>
+    Number(pin.expires_at_ms) > signalClock
+  )
+  const individualReports = (cityFloodSignals?.individual_reports || []).filter(report =>
+    Number(report.expires_at_ms) > signalClock
+  )
   const cityLabel = selectedCity || 'your selected location'
-  const floodItems = [...reports, ...nlpEvents]
+  const floodItems = [...reports, ...nlpEvents, ...individualReports]
   const sortedItems = [...floodItems].sort((a, b) => (severityRank[severityOf(b)] || 0) - (severityRank[severityOf(a)] || 0))
   const highestSeverity = severityOf(sortedItems[0])
   const highItems = floodItems.filter(item => severityOf(item) === 'high')
@@ -144,7 +153,7 @@ export default function AlertsPage({
       </header>
 
       <main className="al-body">
-        {socialAlerts.map(city => <section key={city.city_id} className="al-safety-advice" role="status">
+        {socialAlerts.filter(city => !socialReports.some(report => report.city_id === city.city_id)).map(city => <section key={city.city_id} className="al-safety-advice" role="status">
           <strong>Reported flooding in {city.city_name}</strong>
           <p>{city.event_post_count || city.post_count} flood-related social reports. These reports are not officially verified. Follow local government advisories.</p>
         </section>)}
@@ -161,14 +170,21 @@ export default function AlertsPage({
 
         <section className={`al-safety-advice ${riskLevel}`} aria-live="polite">
           <div className="al-safety-head"><span className="al-safety-pulse" aria-hidden="true" /><div><strong>{highestSeverity ? `${highestSeverity === 'medium' ? 'Moderate' : highestSeverity[0].toUpperCase() + highestSeverity.slice(1)} flood readiness` : 'Flood readiness'}</strong><small>{floodItems.length ? `Based on ${floodItems.length} current report${floodItems.length === 1 ? '' : 's'} for ${cityLabel}.` : `No verified flood reports for ${cityLabel}; stay prepared.`}</small></div></div>
-          <ul>{(advice[highestSeverity] || ['Keep your phone charged and prepare essential items.', 'Follow official local advisories and check on people who may need assistance.', 'No reports do not confirm that flooding is absent.']).map(item => <li key={item}>{item}</li>)}</ul>
+          <ul>{(advice[highestSeverity] || ['Keep your phone charged and prepare essential items.', 'Follow official local advisories and check on people who may need assistance.', 'No reports in BANTALA’s current data do not confirm that flooding is absent.']).map(item => <li key={item}>{item}</li>)}</ul>
         </section>
 
         {/* Advisories + recent flood reports */}
         <CurrentAdvisoriesCard selectedCity={selectedCity} announcements={announcements} />
         <FloodLevelGuide />
 
-        <FloodReportsCard selectedCity={selectedCity} reports={reports} nlpEvents={nlpEvents} />
+        <FloodReportsCard
+          selectedCity={selectedCity}
+          reports={reports}
+          nlpEvents={nlpEvents}
+          socialReports={socialReports}
+          socialPins={socialPins}
+          individualReports={individualReports}
+        />
 
       </main>
 

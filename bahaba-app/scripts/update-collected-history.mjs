@@ -1,5 +1,6 @@
 import {readFileSync,writeFileSync,copyFileSync,existsSync} from 'node:fs';
 import {resolve} from 'node:path';
+import {patchLiveFeed} from './admin-live-feed.mjs';
 const admin=resolve(process.argv[2]||resolve(import.meta.dirname,'../preview.local/full-admin'));
 for(const [from,to] of [['admin-collected-history.php','collected-history.php'],['admin-collected-history.js','collected-history.js']])copyFileSync(resolve(import.meta.dirname,from),resolve(admin,to));
 // API include is after authentication helper declarations and request parsing.
@@ -22,8 +23,9 @@ if(!app.includes('payload.next_before'))app=app.replace(needle,`    const collec
     }
     NLP_EVENTS=collectedEvents;`);
 app=app.replace('Collected posts are separate from submitted reports and should not be added to report totals. NLP data covers records currently available in the collector database; report history includes permanent monthly summaries.', 'Posts collected more than 24 hours ago are summarized here for the latest 12 months. Collection history below provides calendar-year selection and Excel export. Post totals are separate from verified report totals.');
-writeFileSync(appFile,app);
-const htmlFile=resolve(admin,'index.html');let html=readFileSync(htmlFile,'utf8');if(!html.includes('src="collected-history.js'))html=html.replace('</body>','<script src="collected-history.js"></script>\n</body>');writeFileSync(htmlFile,html);
+const htmlFile=resolve(admin,'index.html');let html=readFileSync(htmlFile,'utf8');if(!html.includes('src="collected-history.js'))html=html.replace('</body>','<script src="collected-history.js"></script>\n</body>');
+({app,html}=patchLiveFeed(app.replace(/\r\n/g,'\n'),html));
+writeFileSync(appFile,app);writeFileSync(htmlFile,html);
 // Local full-admin has a separate shared API copy.
 if(existsSync(resolve(admin,'api')))copyFileSync(resolve(import.meta.dirname,'../api/collected-summary.php'),resolve(admin,'api/collected-summary.php'));
 console.log('Updated 24-hour feed, collection summaries and Excel export in '+admin);

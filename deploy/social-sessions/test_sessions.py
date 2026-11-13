@@ -23,6 +23,27 @@ class SessionIsolationTests(unittest.IsolatedAsyncioTestCase):
     def action(self, **changes):
         return app.Action(**dict({'scope': 'bulacan', 'platform': 'Facebook', 'owner': 'a'*64, 'operation': 'disconnect'}, **changes))
 
+    async def test_cookie_import_without_login_browser(self):
+        for platform, raw in [('Facebook', 'c_user=test; xs=test=value'), ('X', 'auth_token=test; ct0=test'), ('Threads', 'sessionid=test')]:
+            result = await app.operate(self.action(platform=platform, operation='import-session', text=json.dumps(raw)))
+            self.assertTrue(result['connected'])
+            self.assertIsNotNone(app.saved_state('bulacan', platform))
+        self.assertFalse(app.sessions)
+
+    async def test_invalid_import_preserves_existing_session(self):
+        await app.operate(self.action(operation='import-session', text='c_user=test; xs=valid'))
+        path = app.state_path('bulacan', 'Facebook')
+        previous = path.read_bytes()
+        with self.assertRaises(HTTPException):
+            await app.operate(self.action(operation='import-session', text='c_user=test'))
+        self.assertEqual(path.read_bytes(), previous)
+
+    async def test_import_preserves_threads_cookie_domain(self):
+        raw = json.dumps([{'name': 'sessionid', 'value': 'test', 'domain': '.instagram.com'}])
+        await app.operate(self.action(platform='Threads', operation='import-session', text=raw))
+        state = app.saved_state('bulacan', 'Threads')['storage']
+        self.assertEqual(state['cookies'][0]['domain'], '.instagram.com')
+
     async def test_scope_path_traversal_rejected(self):
         with self.assertRaises(HTTPException) as caught:
             app.state_path('../../malolos', 'Facebook')

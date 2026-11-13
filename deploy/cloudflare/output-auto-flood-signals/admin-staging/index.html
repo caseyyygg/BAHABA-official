@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BAHABA Console — LGU Operations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============================================================ LOGIN / REGISTER / FORGOT PASSWORD ============================================================ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-side">
+      <div class="brand">
+        <div class="brand-mark"><img src="https://imgur.com/Fb6WdvP.jpeg" alt="BAHABA Logo" class="brand-logo-img"></div>
+        <div><h1>BAHABA Console</h1><div class="role-copy">Platform &amp; LGU Operations</div></div>
+      </div>
+      <div class="quote" id="auth-side-quote">"<b>BAHABA built it, so BAHABA can see and manage all of it.</b> Each LGU account manages only its own barangay. Most updates arrive automatically from BAHABA's NLP system, which reads public social media posts for flood signals."</div>
+      <svg class="waves" viewBox="0 0 412 120" preserveAspectRatio="none" style="height:100px;">
+        <path d="M0,60 C60,30 100,85 160,60 C220,38 260,90 320,68 C360,54 390,62 412,60 L412,120 L0,120 Z" fill="#bcd9f4" opacity=".5"/>
+        <path d="M0,75 C70,98 120,45 180,75 C240,105 280,52 340,75 C370,88 395,80 412,75 L412,120 L0,120 Z" fill="#1d6fe0" opacity=".9"/>
+      </svg>
+    </div>
+
+    <div class="login-main">
+
+      <!-- ---------- LOG IN ---------- -->
+      <div class="auth-view active" id="auth-login">
+        <div class="eyebrow">Welcome back</div>
+        <h2>Log in to your account</h2>
+        <div class="lead">Use the email and password registered to your BAHABA or LGU account.</div>
+
+        <div class="form-alert" id="login-alert"></div>
+
+        <form onsubmit="handleLogin(event)">
+          <div class="field">
+            <label>Work email</label>
+            <input type="email" id="login-email" placeholder="you@malabon.gov.ph" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <div class="password-wrap">
+              <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" required>
+              <button type="button" class="pw-toggle" onclick="togglePassword('login-password', this)">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; margin:-6px 0 18px;">
+            <a class="auth-link" onclick="switchAuth('forgot')">Forgot password?</a>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Log in</button>
+        </form>
+
+        <div class="auth-switch">Don't have an account? <a class="auth-link" onclick="switchAuth('register')">Register here</a></div>
+
+        <div class="demo-hint">
+          <button type="button" class="demo-hint-toggle" onclick="toggleDemoHint()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+            Testing the console? View demo credentials
+          </button>
+          <div class="demo-hint-body" id="demo-hint-body">
+            <div class="demo-hint-row"><b>BAHABA Team:</b> miguel.torres@bahaba.ph / Bahaba@2026</div>
+            <div class="demo-hint-row"><b>Navotas LGU:</b> bahaba.lgu.navotas@example.com / FloodTest!26</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- REGISTER ---------- -->
+      <div class="auth-view" id="auth-register">
+        <div class="eyebrow">Register for access</div>
+        <h2>Register for console access</h2>
+        <div class="lead">Register your access request. Both LGU and BAHABA team requests require approval from an existing BAHABA team administrator.</div>
+
+        <div class="form-alert" id="register-alert"></div>
+
+        <form onsubmit="handleRegister(event)">
+          <div class="field">
+            <label>Account type</label>
+            <div class="type-grid">
+              <div class="type-option selected" id="type-option-lgu" onclick="selectAccountType('lgu')">
+                <div class="type-icon" style="background:var(--blue-100); color:var(--blue-600);">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-6.5 7-11.5a7 7 0 0 0-14 0C5 14.5 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.4"/></svg>
+                </div>
+                <div><div class="type-name">LGU / Barangay</div><div class="type-desc">Manages one barangay</div></div>
+              </div>
+              <div class="type-option" id="type-option-creator" onclick="selectAccountType('creator')">
+                <div class="type-icon" style="background:var(--navy-800); color:#fff;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2.3"/><path d="M8 20h8M12 16v4"/><path d="M8 9.5l2.2 2.2L16 6"/></svg>
+                </div>
+                <div><div class="type-name">BAHABA Team</div><div class="type-desc">Platform admin</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="lgu-fields">
+            <div class="field-row">
+              <div class="field"><label>City / Municipality</label>
+                <select id="reg-city" onchange="populateRegBarangaySelect()"></select>
+              </div>
+              <div class="field"><label>Barangay</label>
+                <select id="reg-barangay"></select>
+              </div>
+            </div>
+          </div>
+
+          <div class="field"><label>Full name</label><input type="text" id="reg-name" placeholder="Juan Dela Cruz" required></div>
+          <div class="field"><label>Work email</label><input type="email" id="reg-email" placeholder="you@malabon.gov.ph" required></div>
+          <div class="field-row">
+            <div class="field"><label>Password</label>
+              <div class="password-wrap">
+                <input type="password" id="reg-password" placeholder="8–72 characters" maxlength="72" required>
+                <button type="button" class="pw-toggle" onclick="togglePassword('reg-password', this)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="field"><label>Confirm password</label>
+              <div class="password-wrap">
+                <input type="password" id="reg-password2" placeholder="Re-enter password" maxlength="72" required>
+                <button type="button" class="pw-toggle" onclick="togglePassword('reg-password2', this)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="mini-note" style="margin-bottom:14px;">Password must be 8–72 characters and can only contain letters, numbers, and special characters (no spaces).</div>
+
+          <div class="mini-note" id="register-note">All registration requests require approval from an existing BAHABA team administrator before login is allowed.</div>
+
+          <button type="submit" class="btn btn-primary" style="width:100%; margin-top:16px;">Submit registration request</button>
+        </form>
+
+        <div class="auth-switch">Already have an account? <a class="auth-link" onclick="switchAuth('login')">Log in</a></div>
+      </div>
+
+      <!-- ---------- FORGOT PASSWORD ---------- -->
+      <div class="auth-view" id="auth-forgot">
+        <div class="eyebrow">Reset password</div>
+        <h2>Forgot your password?</h2>
+        <div class="lead">Enter the email on your account and we'll send a link to reset your password.</div>
+
+        <div class="form-alert" id="forgot-alert"></div>
+
+        <form onsubmit="handleForgotPassword(event)">
+          <div class="field"><label>Work email</label><input type="email" id="forgot-email" placeholder="you@malabon.gov.ph" required></div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Send reset link</button>
+        </form>
+
+        <div class="auth-switch"><a class="auth-link" onclick="switchAuth('login')">&larr; Back to log in</a></div>
+      </div>
+
+      <!-- ---------- RESET LINK SENT ---------- -->
+      <div class="auth-view" id="auth-reset-sent">
+        <div class="confirm-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2.2"/></svg>
+        </div>
+        <h2>Check your email</h2>
+        <div class="lead">If an account exists for <b id="reset-sent-email">that address</b>, we've sent a link to reset your password. It should arrive within a few minutes.</div>
+        <button class="btn btn-outline" style="width:100%; margin-top:10px;" onclick="switchAuth('login')">Back to log in</button>
+      </div>
+
+      <!-- ---------- PENDING APPROVAL (LGU registration) ---------- -->
+      <div class="auth-view" id="auth-pending">
+        <div class="confirm-icon" style="background:var(--amber-500);">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 7v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+        </div>
+        <h2>Registration submitted</h2>
+        <div class="lead">Your registration request for <b id="pending-barangay-name">your barangay</b> is awaiting approval from the BAHABA team. You can log in after the team approves your request. No email is sent by this local preview.</div>
+        <button class="btn btn-outline" style="width:100%; margin-top:10px;" onclick="switchAuth('login')">Back to log in</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ============================================================ APP SHELL ============================================================ -->
+<div id="app-shell">
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="brand-mark"><img src="https://imgur.com/Fb6WdvP.jpeg" alt="BAHABA Logo" class="brand-logo-img"></div>
+      <div><div class="sb-brand-name">BAHABA</div><div class="sb-brand-tag">LGU Console</div></div>
+    </div>
+
+    <div class="sb-section-label">Operations</div>
+    <button class="sb-link" data-view="command" onclick="go('command')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 1 7 0M5.6 5.6a9 9 0 0 1 12.8 0M15.5 15.5a5 5 0 0 1-7 0M18.4 18.4a9 9 0 0 1-12.8 0"/></svg>
+      Command Center
+    </button>
+    <button class="sb-link" data-view="evacuees" onclick="go('evacuees')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
+      Evacuees
+      <span class="sb-lock" data-lock-icon><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/></svg></span>
+    </button>
+    <button class="sb-link" data-view="reports" onclick="go('reports')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      Reports
+      <span class="sb-lock" data-lock-icon><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/></svg></span>
+    </button>
+    <button class="sb-link" data-view="announcements" onclick="go('announcements')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      Announcements
+      <span class="sb-lock" data-lock-icon><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/></svg></span>
+    </button>
+
+    <div class="sb-section-label">Platform</div>
+    <button class="sb-link" data-view="logs" onclick="go('logs')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none"/></svg>
+      System Logs &amp; Security
+      <span class="sb-lock" data-lock-icon><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/></svg></span>
+    </button>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex; align-items:center;">
+        <div class="tb-title" id="tb-title">Command Center</div>
+        <span class="tb-scope" id="tb-scope"></span>
+      </div>
+      <div class="tb-right">
+        <div class="tb-bell" onclick="toggleDropdown('bell')">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="tb-badge" id="tb-bell-badge">0</span>
+        </div>
+
+        <div class="tb-dropdown-wrap">
+          <button class="tb-dropdown-btn" id="module-btn" onclick="toggleDropdown('module')">
+            <span id="module-btn-label">Operations Module</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="tb-dropdown-panel" id="module-panel"></div>
+        </div>
+
+        <div class="tb-dropdown-wrap">
+          <button class="tb-dropdown-btn" onclick="toggleDropdown('account')">
+            <span id="account-btn-label">BAHABA</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="tb-dropdown-panel" id="account-panel"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ COMMAND CENTER ============ -->
+    <section class="view active" data-view="command" id="view-command">
+      <div class="view-head">
+        <div>
+          <h2>Command Center</h2>
+          <div class="view-sub" id="command-sub">Live flood status and response metrics.</div>
+        </div>
+      </div>
+      <div id="command-banner"></div>
+      <div class="metric-row" id="command-metrics"></div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3 id="command-panel-title">Barangay Status</h3>
+        </div>
+        <div class="panel-body" id="command-ledger"></div>
+      </div>
+    </section>
+
+    <!-- ============ EVACUEES ============ -->
+    <section class="view" data-view="evacuees" id="view-evacuees">
+      <div class="view-head">
+        <div>
+          <h2>Evacuees</h2>
+          <div class="view-sub">Keep evacuation center counts current so response teams and residents see accurate capacity.</div>
+        </div>
+        <select class="barangay-select" id="evac-barangay-select" onchange="renderEvacuees()"></select>
+      </div>
+      <div id="evac-scope-banner"></div>
+      <div class="evac-grid" id="evac-grid"></div>
+    </section>
+
+    <!-- ============ REPORTS ============ -->
+    <section class="view" data-view="reports" id="view-reports">
+      <div class="view-head">
+        <div>
+          <h2>Reports</h2>
+          <div class="view-sub">Most reports arrive automatically — BAHABA's NLP system reads public social media posts for flood signals. Verify what's accurate so it reaches the Command Center and citizen app.</div>
+        </div>
+        <select class="barangay-select" id="reports-barangay-select" onchange="renderReports()"></select>
+      </div>
+      <div class="chip-filter" id="reports-filter"></div>
+      <div class="panel"><div class="panel-body" id="reports-list"></div></div>
+    </section>
+
+    <!-- ============ ANNOUNCEMENTS ============ -->
+    <section class="view" data-view="announcements" id="view-announcements">
+      <div class="view-head">
+        <div>
+          <h2>Announcements</h2>
+          <div class="view-sub" id="ann-sub">Publish updates for residents — advisories, evacuation calls, or all-clears.</div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <select class="barangay-select" id="ann-barangay-select" onchange="renderAnnouncements()"></select>
+          <button class="btn btn-primary" onclick="openAnnComposer()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M12 5v14M5 12h14"/></svg>
+            New announcement
+          </button>
+        </div>
+      </div>
+
+      <div class="panel" id="ann-composer" style="display:none;">
+        <div class="panel-head"><h3>Compose announcement</h3><span style="cursor:pointer; font-size:12.5px; color:var(--blue-600); font-weight:700;" onclick="closeAnnComposer()">Cancel</span></div>
+        <div class="panel-body" style="padding:18px 20px;">
+          <div class="field"><label>Title</label><input type="text" id="ann-title" placeholder="e.g. Rising water along Rizal St."></div>
+          <div class="field"><label>Message</label><textarea id="ann-body" placeholder="What residents need to know and do..."></textarea></div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-outline" onclick="saveAnnouncement('draft')">Save as draft</button>
+            <button class="btn btn-primary" onclick="saveAnnouncement('published')">Publish</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chip-filter" id="ann-filter"></div>
+      <div class="panel"><div class="panel-body" id="ann-list"></div></div>
+    </section>
+
+    <!-- ============ SYSTEM LOGS & SECURITY ============ -->
+    <section class="view" data-view="logs" id="view-logs">
+      <div class="view-head">
+        <div>
+          <h2>System Logs &amp; Security</h2>
+          <div class="view-sub">Every action taken by BAHABA staff, LGU accounts, and the NLP system, in one audit trail.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="padding:18px 20px 4px;">
+        <div class="logs-filters">
+          <input type="text" id="logs-search" placeholder="Search logs or users...">
+          <select id="logs-module-filter">
+            <option value="all">All Modules</option>
+            <option value="Command Center">Command Center</option>
+            <option value="Evacuees">Evacuees</option>
+            <option value="Reports">Reports</option>
+            <option value="Announcements">Announcements</option>
+            <option value="Account">Account</option>
+          </select>
+          <select id="logs-status-filter">
+            <option value="all">All Status</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div class="logs-filters" style="margin-top:10px;">
+          <input type="text" id="logs-start-date" placeholder="Start Date (MM/DD/YYYY)">
+          <input type="text" id="logs-end-date" placeholder="End Date (MM/DD/YYYY)">
+          <div></div>
+        </div>
+        <div class="logs-actions-row">
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-primary btn-sm" onclick="applyLogFilters()">Filter Results</button>
+            <button class="btn btn-outline btn-sm" onclick="clearLogFilters()">Clear Filters</button>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="exportLogs()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+            Export Logs
+          </button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <table class="logs-table">
+          <thead>
+            <tr><th>Timestamp</th><th>User</th><th>Module &amp; Action</th><th>Description</th><th>Security</th><th>Status</th></tr>
+          </thead>
+          <tbody id="logs-tbody"></tbody>
+        </table>
+        <div id="logs-empty"></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="App.js"></script>
+</body>
+</html>

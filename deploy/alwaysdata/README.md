@@ -58,6 +58,11 @@ composer install --no-dev --no-interaction --prefer-dist
 The package includes access rules that block direct requests for `config.php`,
 the SQL schema, and Composer files. Keep both `.htaccess` files in place.
 
+The API bundle includes account-deletion endpoints. Keep SMTP configured so
+users can request deletion from `/delete-account/` and receive the one-time
+confirmation link. Signed-in users can also delete their account from Settings
+in the resident app.
+
 ## 4. Check the API
 
 Open `https://YOUR-API-HOST/healthz.php`. Once the database settings are correct,

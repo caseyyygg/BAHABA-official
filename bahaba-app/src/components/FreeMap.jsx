@@ -4,6 +4,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { floodPointsFor } from '../floodMap'
 import { LUZON_CAMERA } from '../mapCamera'
+import { reportSeverityColor, reportSeverityExpression } from '../../scripts/report-severity.mjs'
 import './floodPings.css'
 
 setWorkerUrl(workerUrl)
@@ -30,6 +31,8 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
   const floodAreasRef = useRef(floodAreas)
   const syncPingsRef = useRef(null)
   const [error, setError] = useState('')
+  const [lifelinesEnabled, setLifelinesEnabled] = useState(true)
+  const [lifelineStatus, setLifelineStatus] = useState('Loading nearby bridges, hospitals, and services…')
 
   useImperativeHandle(ref, () => ({
     focusFeature(id) {
@@ -53,7 +56,18 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
     try {
       map = new LibreMap({
         container: container.current,
-        style: 'https://tiles.openfreemap.org/styles/liberty',
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '© OpenStreetMap contributors',
+            },
+          },
+          layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+        },
         // Start with the Luzon island group visible; users can zoom and pan
         // to their preferred city after the overview has loaded.
         ...LUZON_CAMERA,
@@ -66,7 +80,7 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
           const element = document.createElement('div')
           element.className = 'flood-ping'
           element.setAttribute('aria-hidden', 'true')
-          element.style.setProperty('--ping-color', { high: '#dc2626', medium: '#f59e0b', low: '#16a34a' }[point.properties.severity] || '#64748b')
+          element.style.setProperty('--ping-color', reportSeverityColor(point.properties.severity))
           const ring = document.createElement('span')
           ring.className = 'flood-ping-ring'
           element.append(ring)
@@ -84,7 +98,7 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
       })
       map.on('style.load', () => {
         const firstLabel = map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id
-        const severityColor = ['match', ['get', 'severity'], 'high', '#dc2626', 'medium', '#f59e0b', 'low', '#16a34a', '#64748b']
+        const severityColor = reportSeverityExpression()
         map.addSource('barangay-boundaries', { type: 'geojson', data: { type: 'FeatureCollection', features } })
         map.addLayer({
           id: 'barangay-boundary-lines', type: 'line', source: 'barangay-boundaries',
@@ -98,7 +112,7 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
         map.addSource('flood-alerts', { type: 'geojson', data: floodAreasRef.current })
         map.addLayer({
           id: 'flood-alert-fill', type: 'fill', source: 'flood-alerts',
-          paint: { 'fill-color': severityColor, 'fill-opacity': ['case', ['==', ['get', 'precision'], 'barangay-only'], 0.08, 0.38] },
+          paint: { 'fill-color': severityColor, 'fill-opacity': ['case', ['==', ['get', 'precision'], 'barangay-only'], 0.28, 0.38] },
         }, firstLabel)
         map.addLayer({
           id: 'flood-alert-outline', type: 'line', source: 'flood-alerts',
@@ -126,8 +140,33 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
           id: 'flood-point-dot', type: 'circle', source: 'flood-points',
           paint: { 'circle-radius': 7, 'circle-color': severityColor, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
         })
+        map.addSource('lifelines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+        map.addLayer({
+          id: 'lifeline-points', type: 'circle', source: 'lifelines',
+          paint: {
+            'circle-radius': 7,
+            'circle-color': ['match', ['get', 'category'], 'health', '#dc2626', 'bridge', '#475569', 'worship', '#7c3aed', 'education', '#2563eb', 'transit', '#0891b2', 'public_safety', '#ea580c', 'government', '#15803d', 'utility', '#a16207', '#475569'],
+            'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+          },
+        })
         syncPings()
       })
+      map.on('click', 'lifeline-points', (event) => {
+        const feature = event.features?.[0]
+        if (!feature) return
+        popup?.remove()
+        const content = document.createElement('div')
+        const title = document.createElement('strong')
+        title.textContent = feature.properties.name || 'Nearby lifeline'
+        const category = document.createElement('p')
+        category.textContent = feature.properties.label
+        const source = document.createElement('small')
+        source.textContent = 'OpenStreetMap contributor data'
+        content.append(title, category, source)
+        popup = new Popup({ maxWidth: '280px' }).setLngLat(event.lngLat).setDOMContent(content).addTo(map)
+      })
+      map.on('mouseenter', 'lifeline-points', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'lifeline-points', () => { map.getCanvas().style.cursor = '' })
       map.on('click', (event) => {
         const layers = ['flood-point-dot', 'flood-alert-fill'].filter((id) => map.getLayer(id))
         if (!layers.length) return
@@ -202,6 +241,96 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
       console.error('Map initialization failed:', failure)
       setError('Map unavailable. Check that your browser supports WebGL and refresh.')
     }
+
+    let lifelineRequest = 0
+    const loadLifelines = async () => {
+      const source = map?.getSource('lifelines')
+      if (!source || !lifelinesEnabled) return
+      if (!scopeBoundary?.geometry) {
+        setLifelineStatus('Choose an LGU to show nearby lifelines.')
+        return
+      }
+      const own = ++lifelineRequest
+      const scope = areaName || 'Philippines'
+      const cacheKey = `bahaba-map-lifelines-v1-${scope}`
+      try {
+        const saved = JSON.parse(localStorage.getItem(cacheKey) || 'null')
+        if (saved?.expires > Date.now() && Array.isArray(saved.features)) {
+          source.setData({ type: 'FeatureCollection', features: saved.features })
+          setLifelineStatus(`${saved.features.length} nearby places · OpenStreetMap`)
+          return
+        }
+      } catch { /* Use the live map query when local storage is unavailable. */ }
+      const coords = scopeBoundary.geometry.coordinates
+      let south = 90, west = 180, north = -90, east = -180
+      const visit = value => {
+        if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') {
+          west = Math.min(west, value[0]); east = Math.max(east, value[0])
+          south = Math.min(south, value[1]); north = Math.max(north, value[1])
+        } else if (Array.isArray(value)) value.forEach(visit)
+      }
+      visit(coords)
+      if (south > north || west > east) {
+        setLifelineStatus('LGU boundary unavailable for nearby places.')
+        return
+      }
+      setLifelineStatus('Loading nearby lifelines from OpenStreetMap…')
+      const bbox = `${south},${west},${north},${east}`
+      const query = `[out:json][timeout:20];(nwr["amenity"~"^(place_of_worship|hospital|clinic|doctors|health_centre|school|college|university|kindergarten|bus_station|ferry_terminal|bus_stop|fire_station|police|townhall)$"](${bbox});nwr["healthcare"~"^(hospital|clinic|doctor|centre)$"](${bbox});nwr["office"="government"](${bbox});nwr["bridge"="yes"](${bbox});way["man_made"="bridge"](${bbox});nwr["railway"~"^(station|halt)$"](${bbox});nwr["public_transport"="station"](${bbox});nwr["aeroway"="terminal"](${bbox});nwr["power"~"^(substation|plant|generator)$"](${bbox});nwr["man_made"~"^(water_works|pumping_station)$"](${bbox}););out center tags;`
+      try {
+        const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' } })
+        if (!response.ok) throw new Error('OpenStreetMap query failed')
+        const data = await response.json()
+        if (own !== lifelineRequest || !lifelinesEnabled) return
+        const insideRing = (ring, lon, lat) => {
+          let inside = false
+          for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const [xi, yi] = ring[i], [xj, yj] = ring[j]
+            if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside
+          }
+          return inside
+        }
+        const isInside = (lon, lat) => {
+          const geometry = scopeBoundary.geometry
+          const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
+          return polygons.some(polygon => insideRing(polygon[0], lon, lat) && !polygon.slice(1).some(ring => insideRing(ring, lon, lat)))
+        }
+        const categorize = tags => {
+          if (tags.amenity === 'place_of_worship') return 'worship'
+          if (['hospital', 'clinic', 'doctors', 'health_centre'].includes(tags.amenity) || ['hospital', 'clinic', 'doctor', 'centre'].includes(tags.healthcare)) return 'health'
+          if (['school', 'college', 'university', 'kindergarten'].includes(tags.amenity)) return 'education'
+          if (tags.bridge === 'yes' || tags.man_made === 'bridge') return 'bridge'
+          if (['bus_station', 'ferry_terminal', 'bus_stop'].includes(tags.amenity) || tags.highway === 'bus_stop' || ['station', 'halt'].includes(tags.railway) || tags.public_transport === 'station' || tags.aeroway === 'terminal') return 'transit'
+          if (['fire_station', 'police'].includes(tags.amenity)) return 'public_safety'
+          if (tags.office === 'government' || tags.amenity === 'townhall') return 'government'
+          if (['substation', 'plant', 'generator'].includes(tags.power) || ['water_works', 'pumping_station'].includes(tags.man_made)) return 'utility'
+          return ''
+        }
+        const features = [], seen = new Set()
+        for (const element of data.elements || []) {
+          const tags = element.tags || {}, category = categorize(tags)
+          const lat = element.lat ?? element.center?.lat, lon = element.lon ?? element.center?.lon
+          if (!category || !Number.isFinite(lat) || !Number.isFinite(lon) || !isInside(lon, lat)) continue
+          const key = `${element.type}/${element.id}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          const labels = { worship: 'Place of worship', health: 'Hospital or clinic', education: 'School', bridge: 'Bridge', transit: 'Transit', public_safety: 'Public safety', government: 'Government service', utility: 'Utility' }
+          features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { category, label: labels[category], name: tags.name || tags.operator || labels[category] } })
+        }
+        map?.getSource('lifelines')?.setData({ type: 'FeatureCollection', features })
+        try { localStorage.setItem(cacheKey, JSON.stringify({ expires: Date.now() + 86400000, features })) } catch { /* Map remains usable without a cache. */ }
+        setLifelineStatus(`${features.length} nearby places · OpenStreetMap`)
+      } catch {
+        if (own === lifelineRequest) setLifelineStatus('Nearby-place data unavailable. Check your connection and retry.')
+      }
+    }
+    const waitForStyle = () => map?.isStyleLoaded() && map.getSource('lifelines') ? loadLifelines() : map?.once('idle', waitForStyle)
+    if (lifelinesEnabled) waitForStyle()
+    else {
+      lifelineRequest++
+      map?.getSource('lifelines')?.setData({ type: 'FeatureCollection', features: [] })
+      setLifelineStatus('Nearby lifelines hidden.')
+    }
     return () => {
       observer?.disconnect()
       pings.forEach((marker) => marker.remove())
@@ -211,11 +340,16 @@ export const FreeMap = forwardRef(function FreeMap({ features, scopeBoundary, ar
       mapRef.current = null
       map?.remove()
     }
-  }, [features, scopeBoundary, areaName])
+  }, [features, scopeBoundary, areaName, lifelinesEnabled])
 
   return (
     <div className="free-map-frame">
       <div ref={container} className="free-map-canvas" aria-label={`Map of ${areaName}`} />
+      <div className="free-map-lifelines">
+        <label><input type="checkbox" checked={lifelinesEnabled} onChange={event => setLifelinesEnabled(event.target.checked)} /> Nearby lifelines</label>
+        <small>{lifelineStatus}</small>
+        <small className="free-map-lifelines-legend">Purple worship · gray bridges · red hospitals · blue schools · teal transit</small>
+      </div>
       {error && <p className="free-map-error" role="alert">{error}</p>}
     </div>
   )

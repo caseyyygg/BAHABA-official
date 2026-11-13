@@ -11,7 +11,7 @@
 .report-pin-badge { align-self: flex-start; margin-right: 18px; padding: 5px 10px; border-radius: 20px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 700; text-transform: capitalize; }
 .report-pin-badge.severity-medium { background: #fff2d5; color: #925b08; }
 .report-pin-badge.severity-high { background: #ffe4e6; color: #b4233c; }
-.report-pin-badge.severity-low { background: #dcfce7; color: #166534; }
+.report-pin-badge.severity-low { background: #fff2d5; color: #925b08; }
 .report-pin-levels { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; margin:2px 0 1px; }
 .report-pin-level { min-width:0; overflow:hidden; border:1px solid #dce7f1; border-radius:9px; background:#f4f8fc; text-align:center; }
 .report-pin-level i { position:relative; display:block; height:32px; overflow:hidden; background:linear-gradient(180deg,#d8e5ed,#edf4f8); }

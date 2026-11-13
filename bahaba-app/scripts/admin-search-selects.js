@@ -18,7 +18,7 @@
     const chevron = document.createElement('i'); chevron.setAttribute('aria-hidden', 'true');
     summary.append(value, chevron);
     const menu = document.createElement('div'); menu.className = 'admin-search-select-menu';
-    const search = document.createElement('input'); search.type = 'search'; search.autocomplete = 'off'; search.placeholder = 'Search...';
+    const search = document.createElement('input'); search.type = 'search'; search.autocomplete = 'off'; search.placeholder = select.id.includes('barangay') ? 'Search barangay name...' : 'Search by name...';
     search.setAttribute('aria-label', `Search ${summary.getAttribute('aria-label').toLowerCase()}`);
     const results = document.createElement('div'); results.className = 'admin-search-select-results'; results.setAttribute('role', 'listbox');
     menu.append(search, results); picker.append(summary, menu);
@@ -49,7 +49,7 @@
       if (select.disabled) { picker.open = false; return; }
       if (menu.parentElement !== document.body) document.body.append(menu);
       menu.classList.add('is-floating');
-      render(); positionMenu();
+      render(); positionMenu(); search.focus();
     }
 
     function hideMenu() {

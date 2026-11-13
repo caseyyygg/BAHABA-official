@@ -240,7 +240,7 @@
   const picker = document.createElement('details'); picker.className = 'assigned-location-picker';
   const summary = document.createElement('summary'); summary.id = 'new-user-location-picker'; summary.setAttribute('aria-labelledby', 'new-user-location-label');
   const selectedName = document.createElement('span'); selectedName.className = 'assigned-location-value';
-  const chevron = document.createElement('span'); chevron.className = 'assigned-location-chevron'; chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = '⌄';
+  const chevron = document.createElement('span'); chevron.className = 'assigned-location-chevron'; chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = '';
   summary.append(selectedName, chevron);
   const menu = document.createElement('div'); menu.className = 'assigned-location-menu';
   const optionsList = document.createElement('div'); optionsList.className = 'assigned-location-options'; optionsList.setAttribute('role', 'listbox'); optionsList.setAttribute('aria-label', 'Supported locations');
@@ -262,6 +262,9 @@
     location.disabled = isPlatform; location.required = !isPlatform; search.disabled = isPlatform;
     picker.classList.toggle('disabled', isPlatform);
     picker.setAttribute('aria-disabled', String(isPlatform));
+    summary.setAttribute('aria-disabled', String(isPlatform));
+    chevron.hidden = isPlatform;
+    if (isPlatform) picker.open = false;
     const query = search.value.trim().toLowerCase();
     const options = [new Option(isPlatform ? 'All supported locations' : 'Choose an assigned location', isPlatform ? 'all' : '')];
     if (!isPlatform) {

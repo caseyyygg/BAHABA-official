@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import { provisionalBarangaySignals, loadAdminFloodSignals } from './admin-flood-signals.mjs';
+import { reportSeverityColor, normalizeReportSeverity } from './report-severity.mjs';
+import { activeSignalFeatures } from '../src/cityFloodSignals.js';
+const now=Date.parse('2026-11-05T16:45:00Z');
+const boundary={type:'Feature',id:'PH1307503005',properties:{name:'Daanghari',city:'Navotas'},geometry:{type:'Polygon',coordinates:[[[120.9,14.6],[120.91,14.6],[120.9,14.61],[120.9,14.6]]]}};
+const sanJoseBoundary={type:'Feature',id:'PH1307503010',properties:{name:'San Jose (Pob.)',sourceName:'San Jose (Pob.)',city:'Navotas'},geometry:boundary.geometry};
+const post={source:'X',source_post_id:'2118382746552909869',classification:'Flood',post_text:'TUMATAAS NA PO ANG TUBIG BAHA DAANGHARI NAVOTAS',published_at:'2026-11-05 16:39:39',severity:'Low'};
+const pins=provisionalBarangaySignals([post,{...post}], [boundary],now);
+assert.equal(pins.length,1);assert.equal(pins[0].post_count,1);assert.equal(pins[0].barangay_feature_id,boundary.id);assert.equal(pins[0].latitude,null);
+assert.equal(provisionalBarangaySignals([{...post,classification:'Non-Flood'}],[boundary],now).length,0);
+for(const published_at of [null,'2026-11-04 16:44:59','2026-11-05 17:00:00']) assert.equal(provisionalBarangaySignals([{...post,published_at}],[boundary],now).length,0);
+assert.equal(provisionalBarangaySignals([{...post,published_at:'2026-11-05 16:00:00'}],[boundary],now).length,1);
+assert.equal(provisionalBarangaySignals([{...post,published_at:'2026-11-05 15:59:59'}],[boundary],now).length,0);
+assert.equal(provisionalBarangaySignals([{...post,published_at:'2026-11-04 17:45:00'}],[boundary],now).length,0);
+assert.equal(provisionalBarangaySignals([{...post,post_text:'Baha Daangharim'}],[boundary],now).length,0);
+assert.equal(provisionalBarangaySignals([post],[boundary,{...boundary,id:'another-city'}],now).length,0);
+assert.equal(reportSeverityColor('High'),'#dc2626');
+assert.equal(reportSeverityColor('Mid'),'#d97706');
+assert.equal(reportSeverityColor('Moderate'),'#d97706');
+assert.equal(reportSeverityColor('Low'),'#eab308');
+assert.equal(reportSeverityColor('Unspecified'),'#64748b');
+assert.equal(normalizeReportSeverity('Mixed'),'high');
+let calls=[];
+const fallback=await loadAdminFloodSignals('/admin-api.php','navotas',[boundary],async (url,options)=>{
+ calls.push(url);assert.equal(options.credentials,'include');
+ return url.includes('nlp-progress') ? new Response('Unavailable',{status:500}) : Response.json({events:[post]});
+},now);
+assert.equal(fallback.provisional_fallback,true);assert.equal(fallback.pins[0].label,'Daanghari');assert.equal(fallback.cities.length,0);assert.equal(calls.length,2);
+assert.equal(fallback.progress_error,'HTTP 500');
+const screenshotPost={source:'X',source_post_id:'navotas-san-jose-post',classification:'Flood',post_text:'May baha na po sa brgy. san jose, navatos hospital. Umaabot na sa kalahati ng gulong ng mga sasakyan.',published_at:'2026-11-06 10:43:30',severity:'High'};
+const screenshotNow=Date.parse('2026-11-06T11:01:00Z');
+const screenshotPins=provisionalBarangaySignals([screenshotPost],[sanJoseBoundary],screenshotNow);
+assert.equal(screenshotPins.length,1);assert.equal(screenshotPins[0].label,'San Jose (Pob.)');assert.equal(screenshotPins[0].barangay_feature_id,'PH1307503010');
+const screenshotResponses=[Response.json({pins:[],cities:[]}),Response.json({events:[screenshotPost]})];
+const localLgu=await loadAdminFloodSignals('/admin-api.php','navotas',[sanJoseBoundary],async()=>screenshotResponses.shift(),screenshotNow);
+assert.equal(localLgu.pins[0].label,'San Jose (Pob.)');assert.equal(localLgu.provisional_fallback,true);
+const active=await loadAdminFloodSignals('/admin-api.php','navotas',[boundary],async()=>Response.json({pins:[{label:'Original'}],cities:[]}),now);
+assert.equal(active.pins[0].label,'Original');
+const mergedResponses=[Response.json({pins:[{label:'Verified point',barangay_feature_id:boundary.id,precision_level:'landmark'}],cities:[]}),Response.json({events:[post]})];
+const merged=await loadAdminFloodSignals('/admin-api.php','navotas',[boundary],async()=>mergedResponses.shift(),now);
+assert.deepEqual(merged.pins.map(pin=>pin.precision_level),['landmark']);
+const rendered=activeSignalFeatures({pins:[
+ {event_id:1,location_key:'exact',label:'Mapped school',precision_level:'landmark',geometry:{type:'Point',coordinates:[120.9,14.6]},expires_at_ms:now+1000},
+ {event_id:1,location_key:'barangay',label:'Daanghari',precision_level:'barangay',geometry:boundary.geometry,expires_at_ms:now+1000},
+]},now);
+assert.deepEqual(rendered.features.map(feature=>feature.geometry.type),['Point','Polygon']);
+assert.deepEqual(rendered.features.map(feature=>feature.properties.precision_level),['landmark','barangay']);
+await assert.rejects(()=>loadAdminFloodSignals('/admin-api.php','navotas',[boundary],async()=>new Response('',{status:403}),now),/HTTP 403/);
+console.log('PASS admin map fallback: linked public post, actual barangay, deduplication, stale/future/non-flood rejection, ambiguity, existing signals, and access failures');

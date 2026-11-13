@@ -21,6 +21,7 @@ RUN mkdir -p /var/www/html/resident/api \
 
 COPY deploy/render-api/admin-source/api.php /var/www/html/admin-api.php
 COPY deploy/render-api/admin-source/nlp-location.php /var/www/html/nlp-location.php
+COPY deploy/render-api/admin-source/nlp-timestamps.php /var/www/html/nlp-timestamps.php
 COPY deploy/render-api/admin-source/report-point.php /var/www/html/report-point.php
 COPY deploy/render-api/admin-source/report-management.php /var/www/html/report-management.php
 COPY deploy/render-api/admin-source/nlp-threshold.php /var/www/html/nlp-threshold.php
@@ -32,6 +33,7 @@ COPY deploy/render-api/admin-source/social-accounts.php /var/www/html/social-acc
 COPY deploy/render-api/admin-source/trusted-publishers.php /var/www/html/trusted-publishers.php
 COPY deploy/render-api/admin-source/team-barangays.json /var/www/html/team-barangays.json
 COPY deploy/render-api/admin-source/map-data/ /var/www/html/map-data/
+COPY bahaba-app/src/assets/flood-landmarks.json /var/www/html/flood-landmarks.json
 COPY bahaba-app/location-config.json /var/www/html/location-config.json
 COPY bahaba-app/psgc-registry.json /var/www/html/psgc-registry.json
 COPY deploy/render-api/healthz.php /var/www/html/healthz.php

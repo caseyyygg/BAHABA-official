@@ -22,6 +22,7 @@ import x_agent_reach
 import official_x
 import social_collectors
 import scoped_collectors
+from social_browser import original_timestamp, x_post_timestamp
 import feedparser
 import torch
 from fastapi import Depends, FastAPI, Header, HTTPException, Request as FastAPIRequest
@@ -197,6 +198,7 @@ class DetectionRequest(BaseModel):
     post_id: str | None = Field(default=None, max_length=191)
     post_text: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
     post_url: str | None = Field(default=None, max_length=2048)
+    location_id: str | None = Field(default=None, max_length=32)
     location: str | None = Field(default=None, max_length=255)
     city: str | None = Field(default=None, max_length=150)
     barangay: str | None = Field(default=None, max_length=150)
@@ -363,6 +365,7 @@ def _detect_and_forward(post: DetectionRequest, *, persist: bool = True) -> dict
         "post_id": post.post_id,
         "post_text": post.post_text,
         "post_url": post.post_url,
+        "location_id": post.location_id,
         "location": post.location or extracted_location or None,
         "city": post.city,
         "barangay": post.barangay,
@@ -428,11 +431,11 @@ def _normalize_feed_entry(entry: Any, feed_url: str, source_name: str) -> Detect
     entry_key = str(entry.get("id") or entry.get("guid") or post_url or post_text)
     feed_scope = hashlib.sha256(feed_url.encode("utf-8")).hexdigest()[:16]
     post_id = f"{feed_scope}:{hashlib.sha256(entry_key.encode('utf-8')).hexdigest()}"
-    parsed_date = entry.get("published_parsed") or entry.get("updated_parsed")
+    parsed_date = entry.get("published_parsed")
     if parsed_date:
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", parsed_date)
     else:
-        timestamp = str(entry.get("published") or entry.get("updated") or "").strip() or None
+        timestamp = original_timestamp(entry.get("published"))
 
     return DetectionRequest(
         source=(source_name.strip() or "Public feed")[:32],
@@ -489,7 +492,7 @@ def _public_feed_collector() -> None:
                     posts = posts[-RSS_INITIAL_BACKFILL:]
 
                 for post in posts:
-                    if not post.post_id or post.post_id in seen_post_ids:
+                    if not post.post_id or post.post_id in seen_post_ids or not scoped_collectors.recent_post({'created_at': post.timestamp}):
                         continue
                     try:
                         _detect_and_forward(post)
@@ -548,6 +551,8 @@ def _facebook_page_collector() -> None:
                 if not _matches_facebook_keywords(message):
                     seen_post_ids.add(post_id)
                     continue
+                if not scoped_collectors.recent_post({'created_at': original_timestamp(post.get('created_time'))}):
+                    continue
 
                 try:
                     request_data = DetectionRequest(
@@ -557,7 +562,7 @@ def _facebook_page_collector() -> None:
                         post_url=post.get("permalink_url"),
                         city=FACEBOOK_DEFAULT_CITY,
                         barangay=FACEBOOK_DEFAULT_BARANGAY,
-                        timestamp=post.get("created_time"),
+                        timestamp=original_timestamp(post.get("created_time")),
                     )
                     _detect_and_forward(request_data)
                     seen_post_ids.add(post_id)
@@ -639,7 +644,7 @@ def _normalize_x_post(item: dict[str, Any]) -> DetectionRequest | None:
         post_id=post_id[:191],
         post_text=post_text[:MAX_TEXT_LENGTH],
         post_url=post_url,
-        timestamp=str(item.get("createdAt", "")).strip() or None,
+        timestamp=x_post_timestamp(post_id) or original_timestamp(item.get("createdAt")),
         publisher_id=str(item.get("publisher_id", "")).strip() or None,
     )
 
@@ -678,7 +683,7 @@ def _x_collector() -> None:
             processing_failed = False
             for item in reversed(posts):
                 post = _normalize_x_post(item)
-                if not post or not post.post_id or post.post_id in seen_post_ids:
+                if not post or not post.post_id or post.post_id in seen_post_ids or not scoped_collectors.recent_post({'created_at': post.timestamp}):
                     continue
                 try:
                     _detect_and_forward(post)
@@ -773,14 +778,7 @@ def _fetch_apify_actor_items(actor_id: str, actor_input: dict[str, Any]) -> list
 
 
 def _apify_timestamp(value: Any) -> str | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, (int, float)):
-        timestamp = float(value)
-        if timestamp > 100_000_000_000:
-            timestamp /= 1000
-        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
-    return str(value).strip() or None
+    return original_timestamp(value)
 
 
 def _normalize_apify_social_post(source: str, item: dict[str, Any]) -> DetectionRequest | None:
@@ -831,7 +829,7 @@ def _apify_social_collector() -> None:
 
                 for item in items:
                     post = _normalize_apify_social_post(source, item)
-                    if not post or not post.post_id:
+                    if not post or not post.post_id or not scoped_collectors.recent_post({'created_at': post.timestamp}):
                         continue
                     seen_key = f"{source}:{post.post_id}"
                     if seen_key in seen_post_ids:
@@ -970,8 +968,10 @@ def _process_webhook_event(event_key: str, page_id: str, change: dict[str, Any])
         post_url=details.get("permalink_url") or details.get("link") or change.get("permalink_url") or change.get("link"),
         city=FACEBOOK_DEFAULT_CITY,
         barangay=FACEBOOK_DEFAULT_BARANGAY,
-        timestamp=details.get("created_time") or change.get("created_time"),
+        timestamp=original_timestamp(details.get("created_time") or change.get("created_time")),
     )
+    if not scoped_collectors.recent_post({'created_at': request_data.timestamp}):
+        return
     _detect_and_forward(request_data)
     collector_state["webhook_events_processed"] += 1
     collector_state["last_post_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1204,3 +1204,98 @@ def test_official_x(data: XSearchTestRequest) -> dict[str, Any]:
         raise HTTPException(status_code=error.status, detail=str(error)) from None
     return {"scope": data.scope, "posts_received": len(result['tweets']),
             "posts": result['tweets'], "stored": False, "automatic_polling": X_OFFICIAL_POLLING_ENABLED}
+
+
+class CollectorCheckRequest(BaseModel):
+    scope: str
+    platform: str
+
+
+class ThreadsPostCheckRequest(BaseModel):
+    scope: str
+    post_url: str
+
+
+@app.post('/collector-check', dependencies=[Depends(require_collector_token)])
+def collector_check(data: CollectorCheckRequest):
+    if data.scope not in scoped_collectors.SCOPES or data.platform not in scoped_collectors.PLATFORMS:
+        raise HTTPException(422, 'Unsupported collector scope or platform')
+    saved = scoped_collectors.gateway(data.scope, data.platform)
+    if not saved:
+        return {'connected': False, 'posts_found': 0}
+    try:
+        posts = scoped_collectors.fetch(data.scope, data.platform, saved)
+        return {'connected': True, 'posts_found': len(posts), 'posts': [{'id': p.get('id'), 'url': p.get('url'), 'has_flood_keyword': any(w in str(p.get('text', '')).casefold() for w in ['baha','flood','lubog'])} for p in posts[:20]]}
+    except Exception as exc:
+        known = {key: value for key, value in scoped_collectors.ERROR_MESSAGES.items()}
+        safe = known.get(str(exc))
+        if not safe:
+            safe = {
+                'Agent-Reach X environment is missing; set X_AGENT_REACH_PYTHON locally.': 'X runtime missing',
+                'X session expired or access denied; update the local X cookies.': 'X access denied',
+                'Agent-Reach X search failed; check connection or refresh the local X session.': 'X search failed',
+            }.get(str(exc), 'Collector failed')
+        return {'connected': True, 'posts_found': 0, 'error_type': type(exc).__name__, 'error': safe}
+
+
+@app.post('/collector-threads-post-check', dependencies=[Depends(require_collector_token)])
+def collector_threads_post_check(data: ThreadsPostCheckRequest):
+    if data.scope not in scoped_collectors.SCOPES:
+        raise HTTPException(422, 'Unsupported collector scope')
+    from urllib.parse import urlparse
+    parsed = urlparse(data.post_url)
+    if parsed.scheme != 'https' or parsed.hostname not in {'threads.net', 'www.threads.net', 'threads.com', 'www.threads.com', 'l.threads.com', 'instagram.com', 'www.instagram.com'}:
+        raise HTTPException(422, 'Use a public Threads post URL')
+    saved = scoped_collectors.gateway(data.scope, 'Threads')
+    if not saved:
+        return {'connected': False, 'posts_found': 0}
+    try:
+        from urllib.parse import quote
+        from pathlib import Path
+        import json, os, subprocess, sys
+        directory = Path(__file__).resolve().parent / '.state' / 'lgu-accounts' / data.scope
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        state_path = directory / 'threads.json'
+        state_path.write_text(json.dumps(saved['storage']), encoding='utf-8')
+        state_path.chmod(0o600)
+        try:
+            result = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / 'social_browser.py'), 'Threads', data.post_url, '1'], env=dict(os.environ, BAHABA_SCOPED_BROWSER_STATE=str(state_path)), capture_output=True, encoding='utf-8', timeout=70)
+        finally:
+            state_path.unlink(missing_ok=True)
+        payload = json.loads(result.stdout)
+        if result.returncode or payload.get('error'):
+            raise RuntimeError(payload.get('error', 'unavailable'))
+        return {'connected': True, 'posts_found': len(payload['posts']), 'posts': [{'id': post.get('id'), 'url': post.get('url'), 'has_flood_keyword': any(word in str(post.get('text', '')).casefold() for word in scoped_collectors.FLOOD_WORDS)} for post in payload['posts']]}
+    except Exception as exc:
+        return {'connected': True, 'posts_found': 0, 'error_type': type(exc).__name__, 'error': scoped_collectors.ERROR_MESSAGES.get(str(exc), 'Collector failed')}
+
+
+@app.post('/collector-page-status', dependencies=[Depends(require_collector_token)])
+def collector_page_status(data: CollectorCheckRequest):
+    if data.scope not in scoped_collectors.SCOPES or data.platform not in ('Facebook', 'Threads'):
+        raise HTTPException(422, 'Unsupported collector')
+    saved = scoped_collectors.gateway(data.scope, data.platform)
+    if not saved:
+        return {'connected': False}
+    from playwright.sync_api import sync_playwright
+    from urllib.parse import quote, urlparse
+    query = quote(scoped_collectors.SCOPES[data.scope])
+    url = ('https://www.facebook.com/search/posts/?q=' if data.platform == 'Facebook' else 'https://www.threads.com/search?q=') + query
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            context = browser.new_context(storage_state=saved['storage'], locale='en-US')
+            page = context.new_page()
+            response = page.goto(url, wait_until='domcontentloaded', timeout=25000)
+            page.wait_for_timeout(5000)
+            body = page.locator('body').inner_text().casefold()
+            return {'connected': True, 'http_status': response.status if response else None,
+                    'auth_redirect': any(part in urlparse(page.url).path for part in ('login','checkpoint','challenge')),
+                    'has_city_text': scoped_collectors.SCOPES[data.scope].casefold() in body,
+                    'has_flood_text': 'baha' in body,
+                    'visible_password_fields': page.locator('input[type="password"]:visible').count(),
+                    'articles': page.locator('[role="article"]').count(),
+                    'visible_post_links': page.locator('a[href*="/post/"], a[href*="/posts/"], a[href*="story_fbid"], a[href*="/share/p/"]').count(),
+                    'no_results_message': 'no results' in body or 'no posts found' in body}
+        finally:
+            browser.close()

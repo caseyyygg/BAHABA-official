@@ -13,7 +13,8 @@ import AlertsPage from './pages/AlertsPage'
 import CommandPage from './pages/CommandPage'
 import SettingsPage from './pages/SettingsPage'
 import LocationPicker from './components/LocationPicker'
-import { getNotificationEvents, registerPushDevice, resolveCurrentLocation, unregisterPushDevice } from './api'
+import ReportLocationMap from './components/ReportLocationMap'
+import { getNotificationEvents, getResidentReportLocation, registerPushDevice, resolveCurrentLocation, submitResidentReport, unregisterPushDevice } from './api'
 import {
   checkVerification,
   getLocationData,
@@ -54,6 +55,57 @@ const getPlaceName = async ({ latitude, longitude }) => {
   )?.name
 
   return neighborhood ? `${neighborhood}, ${area}` : area
+}
+
+function ReportFloodModal({ open, onClose, draft, onSubmit, onRetry, onDescriptionChange, description, submitting, status }) {
+  if (!open) return null
+  const location = draft?.address || 'Detecting your location…'
+  return (
+    <div className="report-fab-overlay" role="dialog" aria-modal="true" aria-label="Report flood">
+      <div className="report-fab-card">
+        <div className="report-fab-header">
+          <div>
+            <p className="report-fab-eyebrow">Report Flood</p>
+            <h2>Report Flood</h2>
+          </div>
+          <button type="button" className="report-fab-close" aria-label="Close flood report form" onClick={onClose}>×</button>
+        </div>
+
+        <div className="report-fab-locator">
+          <ReportLocationMap latitude={draft?.latitude} longitude={draft?.longitude} />
+          <div className="report-fab-location-copy">
+            <strong>Current GPS location</strong>
+            <p>{location}</p>
+            <small>
+              {draft?.latitude != null && draft?.longitude != null
+                ? `${draft.latitude.toFixed(5)}, ${draft.longitude.toFixed(5)} · ±${Math.round(draft.accuracy)} m`
+                : 'Waiting for GPS…'}
+            </small>
+          </div>
+        </div>
+
+        <div className="report-fab-meta">
+          <div><span>Barangay</span><strong>{draft?.barangay || 'Unidentified'}</strong></div>
+          <div><span>Municipality</span><strong>{draft?.municipality || 'Unidentified'}</strong></div>
+        </div>
+
+        <label className="report-fab-description">
+          Flood details (optional)
+          <textarea maxLength={1000} value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="Describe what you observed." />
+        </label>
+
+        {status && <p className="report-fab-status">{status}</p>}
+
+        <div className="report-fab-actions">
+          {(!draft?.requestKey || !draft?.barangayFeatureId) && <button type="button" className="report-fab-secondary" onClick={onRetry} disabled={submitting}>Retry GPS</button>}
+          <button type="button" className="report-fab-secondary" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button type="button" className="report-fab-primary" onClick={onSubmit} disabled={!draft?.requestKey || !draft?.barangayFeatureId || submitting}>
+            {submitting ? 'Sending…' : 'Confirm Report'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const navigation = [
@@ -114,6 +166,11 @@ function App() {
   const [locationStatus, setLocationStatus] = useState('')
   const [notificationStatus, setNotificationStatus] = useState('')
   const [alertBanner, setAlertBanner] = useState(null)
+  const [reportFloodOpen, setReportFloodOpen] = useState(false)
+  const [reportDraft, setReportDraft] = useState(null)
+  const [reportLocationStatus, setReportLocationStatus] = useState('Requesting your current GPS location…')
+  const [reportDescription, setReportDescription] = useState('')
+  const [reportSubmitting, setReportSubmitting] = useState(false)
   const appShellRef = useRef(null)
   const [notificationHost, setNotificationHost] = useState(null)
   useLayoutEffect(() => {
@@ -553,6 +610,83 @@ function App() {
     return () => { cancelled = true; navigator.geolocation.clearWatch(watch); setCurrentPsgc(null) }
   }, [currentUser?.id, locationSharingEnabled])
 
+  const handleReportFlood = async (retry = false) => {
+    setReportFloodOpen(true)
+    if (!retry) setReportDescription('')
+    setReportDraft(null)
+    if (!navigator.geolocation) {
+      setReportLocationStatus('GPS is unavailable in this browser. Use HTTPS or the Android app, then retry.')
+      return
+    }
+
+    setReportLocationStatus('Requesting your current GPS location…')
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 30000,
+        })
+      })
+      const { latitude, longitude, accuracy } = position.coords
+      const { location } = await getResidentReportLocation({ latitude, longitude, accuracy })
+      if (!location?.barangay || !location?.barangay_feature_id || !location?.city) {
+        throw new Error('A supported barangay could not be identified from this GPS location.')
+      }
+      setReportDraft({
+        latitude,
+        longitude,
+        accuracy,
+        barangay: location.barangay,
+        municipality: location.city,
+        barangayFeatureId: location.barangay_feature_id,
+        locationId: location.location_id,
+        requestKey: crypto.randomUUID(),
+        address: `${location.barangay}, ${location.city}`,
+      })
+      setReportLocationStatus('GPS location matched to official barangay boundaries.')
+    } catch (error) {
+      const message = error?.code === 1
+        ? 'Location permission was denied. Allow GPS access in your device settings and retry.'
+        : error?.code === 2
+          ? 'GPS detection is unavailable right now. Please try again in a moment.'
+          : error?.code === 3
+            ? 'Location detection timed out. Please try again or enter a location manually.'
+            : error?.message || 'Could not detect a supported barangay. Please retry.'
+      setReportLocationStatus(message)
+    }
+  }
+
+  const handleReportConfirm = async () => {
+    if (!reportDraft?.requestKey || reportDraft.latitude == null || reportDraft.longitude == null || !reportDraft.barangayFeatureId) {
+      setReportLocationStatus('A valid GPS location inside a supported barangay is required before sending a report.')
+      return
+    }
+
+    setReportSubmitting(true)
+    setReportLocationStatus('Sending your report securely to the responsible LGU…')
+    try {
+      const { report } = await submitResidentReport({
+        request_key: reportDraft.requestKey,
+        latitude: reportDraft.latitude,
+        longitude: reportDraft.longitude,
+        accuracy: reportDraft.accuracy,
+        description: reportDescription,
+      })
+      setReportFloodOpen(false)
+      setReportDraft(null)
+      setAlertBanner({
+        title: 'Flood report received',
+        body: `Report #${report.id} for ${reportDraft.barangay}, ${reportDraft.municipality} is pending LGU verification.`,
+        isTest: false,
+      })
+    } catch (error) {
+      setReportLocationStatus(`Report was not submitted: ${error.message}`)
+    } finally {
+      setReportSubmitting(false)
+    }
+  }
+
   const handleNotificationsToggle = async (enabled) => {
     if (!enabled) {
       setPushNotificationsEnabled(false)
@@ -806,6 +940,25 @@ function App() {
         onReveal={revealLoginTransition}
         onComplete={finishLoginTransition}
       />
+
+      {currentUser && ['map', 'alerts', 'command', 'settings'].includes(screen) && (
+        <button type="button" className="report-fab" aria-label="Report Flood" title="Report Flood" onClick={handleReportFlood}>
+          <span aria-hidden="true">!</span>
+        </button>
+      )}
+
+      <ReportFloodModal
+        open={reportFloodOpen}
+        draft={reportDraft}
+        onClose={() => setReportFloodOpen(false)}
+        onSubmit={handleReportConfirm}
+        onRetry={() => handleReportFlood(true)}
+        description={reportDescription}
+        onDescriptionChange={setReportDescription}
+        submitting={reportSubmitting}
+        status={reportLocationStatus}
+      />
+
       {alertBanner && notificationHost && createPortal(
         <aside className="in-app-alert" aria-label="BANTALA notification">
           <div role="status" aria-live="polite" aria-atomic="true">

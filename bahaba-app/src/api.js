@@ -49,6 +49,8 @@ export const unregisterPushDevice = token => request('push-device.php', { method
 export const getMapReports = (params = {}) => request(`map-reports.php?${new URLSearchParams(params)}`, { cache: 'no-store' })
 export const getFloodSignals = (location = '') => request(`flood-signals.php?${new URLSearchParams(location ? { location } : {})}`, { cache: 'no-store' })
 export const resolveCurrentLocation = ({ latitude, longitude, accuracy }) => request(`resolve-location.php?${new URLSearchParams({ latitude, longitude, accuracy })}`)
+export const getResidentReportLocation = ({ latitude, longitude, accuracy }) => request(`report-location.php?${new URLSearchParams({ latitude, longitude, accuracy })}`, { cache: 'no-store' })
+export const submitResidentReport = data => request('resident-report.php', { method: 'POST', body: JSON.stringify(data) })
 export const getLocationBounds = (location) => request(`resolve-location.php?${new URLSearchParams({ location })}`)
 
 export const requestPasswordReset = email => request('forgot-password.php', { method: 'POST', body: JSON.stringify({ email }) })

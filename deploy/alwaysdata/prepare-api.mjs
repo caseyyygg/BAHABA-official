@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -13,7 +13,8 @@ mkdirSync(resolve(apiSite, 'api'), { recursive: true })
 const residentFiles = [
   'bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'push.php', 'push-device.php', 'push-dispatch.php',
   'index.php', 'location-data.php', 'location_helpers.php', 'psgc.php', 'map-reports.php', 'flood-signals.php',
-  'notifications.php', 'resolve-location.php', 'municipality-boundaries.php',
+  'notifications.php', 'resolve-location.php', 'report-location.php', 'resident-report.php',
+  'resident-report-location.php', 'municipality-boundaries.php',
   'municipality-boundaries.json', 'municipality-geometry', 'login.php', 'logout.php',
   'me.php', 'profile.php', 'report-retention.php', 'resend-verification.php', 'signup.php',
   'verify.php', 'schema.sql', 'composer.json', 'composer.lock',
@@ -22,14 +23,15 @@ for (const name of residentFiles) {
   cpSync(resolve(app, 'api', name), resolve(apiSite, 'api', name), { recursive: true })
 }
 cpSync(resolve(app, 'api/collected-summary.php'), resolve(apiSite, 'api/collected-summary.php'))
-// Bundle the locked PHPMailer dependency so signup works even if the host-side
-// Composer step is missed during deployment.
-cpSync(resolve(app, 'api/vendor'), resolve(apiSite, 'api/vendor'), { recursive: true })
+// Include PHPMailer when Composer dependencies have been installed locally.
+const apiVendor = resolve(app, 'api/vendor')
+if (existsSync(apiVendor)) cpSync(apiVendor, resolve(apiSite, 'api/vendor'), { recursive: true })
 cpSync(resolve(here, 'config.example.php'), resolve(apiSite, 'api/config.example.php'))
 cpSync(resolve(root, 'deploy/render-api/healthz.php'), resolve(apiSite, 'healthz.php'))
 cpSync(resolve(app, 'location-config.json'), resolve(apiSite, 'location-config.json'))
 cpSync(resolve(app, 'psgc-registry.json'), resolve(apiSite, 'psgc-registry.json'))
 cpSync(resolve(app, 'src/assets/flood-landmarks.json'), resolve(apiSite, 'flood-landmarks.json'))
+cpSync(resolve(app, 'src/assets/targeted-barangay-geometry.json'), resolve(apiSite, 'api/targeted-barangay-geometry.json'))
 
 for (const name of [
   'api.php', 'nlp-location.php', 'nlp-timestamps.php', 'report-point.php', 'report-management.php',

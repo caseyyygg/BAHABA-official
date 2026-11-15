@@ -1,4 +1,4 @@
-const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'location-data.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'signup.php', 'resend-verification.php', 'verify.php', 'push-device.php'])
+const endpoints = new Set(['index.php', 'login.php', 'forgot-password.php', 'reset-password.php', 'logout.php', 'me.php', 'profile.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'location-data.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'report-location.php', 'resident-report.php', 'signup.php', 'resend-verification.php', 'verify.php', 'push-device.php'])
 const nlpHealthActions = new Set(['health', 'all-reports', 'nlp-events', 'nlp-progress', 'nlp-posts'])
 
 export default {

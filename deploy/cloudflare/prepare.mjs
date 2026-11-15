@@ -52,7 +52,7 @@ writeFileSync(adminAppPath, adminApp)
 // publication sends immediately; the scheduled dispatcher remains a retry.
 const adminApiPath = resolve(stagedAdmin, 'api.php')
 let adminApi = readFileSync(adminApiPath, 'utf8')
-const canonicalAdminApi = readFileSync(resolve(root, 'deploy/render-api/admin-source/api.php'), 'utf8')
+const canonicalAdminApi = readFileSync(resolve(root, 'deploy/render-api/admin-source/api.php'), 'utf8').replace(/\r\n/g, '\n')
 const healthStart = canonicalAdminApi.indexOf('function nlp_service_status(): array')
 const healthEnd = canonicalAdminApi.indexOf('\ntry {', healthStart)
 if (healthStart < 0 || healthEnd < 0) throw new Error('Could not locate canonical NLP health function.')
@@ -124,13 +124,14 @@ for (const name of ['index.html', 'App.js', 'style.css', 'admin-polish.css', 'ps
   cpSync(resolve(stagedAdmin, name), resolve(pages, 'admin', name), { recursive: true })
 }
 // Only server sources, never local credentials or test-account seed scripts.
-for (const name of ['bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'config.example.php', 'index.php', 'location-data.php', 'location_helpers.php', 'psgc.php', 'push.php', 'push-device.php', 'push-dispatch.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'municipality-boundaries.php', 'municipality-boundaries.json', 'municipality-geometry', 'login.php', 'logout.php', 'me.php', 'profile.php', 'report-retention.php', 'resend-verification.php', 'signup.php', 'verify.php', 'schema.sql', 'composer.json', 'composer.lock']) {
+for (const name of ['bootstrap.php', 'password-recovery.php', 'forgot-password.php', 'reset-password.php', 'delete-account.php', 'request-account-deletion.php', 'confirm-account-deletion.php', 'config.example.php', 'index.php', 'location-data.php', 'location_helpers.php', 'psgc.php', 'push.php', 'push-device.php', 'push-dispatch.php', 'map-reports.php', 'flood-signals.php', 'notifications.php', 'resolve-location.php', 'report-location.php', 'resident-report.php', 'resident-report-location.php', 'municipality-boundaries.php', 'municipality-boundaries.json', 'municipality-geometry', 'login.php', 'logout.php', 'me.php', 'profile.php', 'report-retention.php', 'resend-verification.php', 'signup.php', 'verify.php', 'schema.sql', 'composer.json', 'composer.lock']) {
   cpSync(resolve(app, 'api', name), resolve(backend, 'api', name), { recursive: true })
 }
+cpSync(resolve(app, 'src/assets/targeted-barangay-geometry.json'), resolve(backend, 'api/targeted-barangay-geometry.json'))
 cpSync(resolve(app, 'api/collected-summary.php'), resolve(backend, 'api/collected-summary.php'))
-// Signup depends on PHPMailer at runtime. Include the locked dependency so
-// Cloudflare/AlwaysData deployments do not require a separate server-side step.
-cpSync(resolve(app, 'api/vendor'), resolve(backend, 'api/vendor'), { recursive: true })
+// Include PHPMailer when Composer dependencies have been installed locally.
+const apiVendor = resolve(app, 'api/vendor')
+if (existsSync(apiVendor)) cpSync(apiVendor, resolve(backend, 'api/vendor'), { recursive: true })
 cpSync(resolve(here, '../alwaysdata/config.example.php'), resolve(backend, 'api/config.example.php'))
 for (const name of ['nlp-location.php', 'nlp-timestamps.php', 'report-point.php', 'report-management.php', 'nlp-threshold.php', 'expire-nlp-events.php', 'trusted-publishers.php', 'collected-history.php', 'team-deployments.php', 'social-accounts.php', 'team-barangays.json']) cpSync(resolve(stagedAdmin, name), resolve(backend, name))
 cpSync(resolve(root, 'deploy/render-api/admin-source/nlp-flood-events.php'), resolve(backend, 'nlp-flood-events.php'))

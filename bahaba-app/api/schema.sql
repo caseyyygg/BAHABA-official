@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS reports (
   location_id VARCHAR(32) NULL,
   description TEXT NOT NULL,
   status ENUM('pending', 'verified', 'rejected') NOT NULL DEFAULT 'pending',
+  resident_user_id BIGINT UNSIGNED NULL,
+  report_request_key CHAR(36) NULL UNIQUE,
+  gps_accuracy_m DECIMAL(8,2) NULL,
   photo BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -48,8 +48,9 @@ paths. The dispatcher is CLI-only. This task delivers newly eligible flood
 signals while residents have closed the app; verified reports and published
 announcements are also sent by the admin API when they are created or updated.
 
-The prepared bundle includes the locked PHPMailer dependency. If you prefer to
-install dependencies on the host, run from the site's `api` folder:
+If the local `api/vendor` directory exists, the prepared bundle includes its
+locked PHPMailer dependency. Otherwise, install dependencies on the host from
+the site's `api` folder:
 
 ```sh
 composer install --no-dev --no-interaction --prefer-dist
